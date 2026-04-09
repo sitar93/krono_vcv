@@ -1,0 +1,11 @@
+build/
+dist/
+plugin.dll
+*.vcvplugin
+*.o
+*.obj
+*.exe
+*.pdb
+*.log
+.DS_Store
+Thumbs.db

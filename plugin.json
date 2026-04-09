@@ -1,0 +1,25 @@
+{
+  "slug": "Krono",
+  "name": "Krono",
+  "version": "2.2.0",
+  "license": "CC-BY-NC-SA-4.0",
+  "brand": "Krono",
+  "author": "JOLIN di Intrisano Federico",
+  "authorEmail": "",
+  "authorUrl": "https://github.com/sitar93",
+  "pluginUrl": "https://github.com/sitar93/krono_vcv",
+  "manualUrl": "https://github.com/sitar93/krono_vcv#readme",
+  "sourceUrl": "https://github.com/sitar93/krono_vcv",
+  "donateUrl": "",
+  "modules": [
+    {
+      "slug": "Krono",
+      "name": "Krono",
+      "description": "Multi-modal rhythm generator",
+      "tags": [
+        "Clock generator",
+        "Sequencer"
+      ]
+    }
+  ]
+}

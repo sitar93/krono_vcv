@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Krono — tuning LED (anteprima)</title>
+  <style>
+    :root {
+      --bg: #1a1d24;
+      --panel: #252830;
+      --text: #e8eaef;
+      --muted: #8b919d;
+      --accent: #6c9ef8;
+      --red: #e64545;
+      --blue: #4a9eff;
+      --jack: rgba(255, 255, 255, 0.25);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #333;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 42rem;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding: 1rem;
+      align-items: flex-start;
+    }
+    .preview-wrap {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .preview-wrap label { font-size: 0.75rem; color: var(--muted); }
+    /* Stessa griglia pixel del modulo in Rack: 4×RACK_GRID_WIDTH × RACK_GRID_HEIGHT */
+    .module {
+      position: relative;
+      width: min(220px, 28vw);
+      aspect-ratio: 60 / 380;
+      background: #0a0a0c;
+      border: 2px solid #444;
+      border-radius: 4px;
+      overflow: hidden;
+      user-select: none;
+      touch-action: none;
+    }
+    .module img.panel-art {
+      position: absolute;
+      height: 100%;
+      width: auto;
+      aspect-ratio: 156 / 1024;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .led {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      border: 2px solid rgba(0, 0, 0, 0.5);
+      cursor: grab;
+      z-index: 2;
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+    }
+    .led:active { cursor: grabbing; }
+    .led.red { background: var(--red); }
+    .led.blue { background: #fff; border-color: var(--blue); }
+    .led.ref {
+      width: 7px;
+      height: 7px;
+      background: var(--jack);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      cursor: default;
+      z-index: 1;
+      box-shadow: none;
+    }
+    .controls {
+      flex: 1 1 320px;
+      min-width: 280px;
+      max-width: 520px;
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 1rem;
+      max-height: calc(100vh - 8rem);
+      overflow: auto;
+    }
+    .controls h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .row-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .field label {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
+    .field input[type="range"] { width: 100%; }
+    .field .num {
+      width: 4.2rem;
+      margin-left: 0.35rem;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.35rem;
+      background: #1e2229;
+      border: 1px solid #444;
+      color: var(--text);
+      border-radius: 4px;
+    }
+    .field-flex {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .blue-block {
+      border-top: 1px solid #3a3f4a;
+      padding-top: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .blue-block h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.8rem;
+      color: var(--accent);
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    button {
+      background: var(--accent);
+      color: #111;
+      border: none;
+      padding: 0.45rem 0.85rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #3a4454;
+      color: var(--text);
+    }
+    textarea.export {
+      width: 100%;
+      min-height: 9rem;
+      margin-top: 0.75rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.68rem;
+      background: #12151a;
+      color: #c8d0e0;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 0.6rem;
+      resize: vertical;
+    }
+    .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+      line-height: 1.45;
+    }
+    .chk { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Krono — tuning LED</h1>
+    <p>
+      Anteprima allineata alla griglia Rack <strong>60×380 px</strong> (4HP×3U) e a <code>mm2px</code> (<code>75/25.4</code> px/mm) — non usare 128.5 mm come altezza pannello.
+      Trascina i LED o usa gli slider; l’export include anche le coordinate <strong>pixel sul JPG 156×1024</strong> (come in <code>Krono.cpp</code>).
+    </p>
+  </header>
+  <main>
+    <div class="preview-wrap">
+      <label>Anteprima (clic e trascina sui LED)</label>
+      <div class="module" id="module" aria-label="Pannello Krono">
+        <img class="panel-art" id="panelImg" src="../res/KronoPanel.jpg" alt="Krono panel" />
+      </div>
+      <div class="chk">
+        <input type="checkbox" id="showJacks" checked />
+        <label for="showJacks">Mostra riferimento jack (1A/1B…)</label>
+      </div>
+    </div>
+    <div class="controls">
+      <h2>Rossi TAP / MOD</h2>
+      <div class="row-grid" id="redControls"></div>
+
+      <div class="blue-block">
+        <h2>Blu per riga (1A/1B … 6A/6B)</h2>
+        <div id="blueControls"></div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="btnExport">Aggiorna snippet C++</button>
+        <button type="button" class="secondary" id="btnReset">Ripristina valori da plugin</button>
+        <button type="button" class="secondary" id="btnSave">Salva in browser</button>
+      </div>
+      <textarea class="export" id="exportBox" readonly spellcheck="false" placeholder="Clic «Aggiorna snippet C++»…"></textarea>
+      <p class="hint">
+        Apri questo file da disco: <code>vcv-rack-plugin/tools/krono-led-tuner.html</code> così l’immagine
+        <code>../res/KronoPanel.jpg</code> si carica. Dopo un aggiornamento del tuner, svuota i vecchi dati: tasto «Ripristina» (usa <code>localStorage</code> chiave <code>kronoLedTunerV2</code>).
+      </p>
+    </div>
+  </main>
+
+  <script>
+(function () {
+  const RACK_GRID_WIDTH = 15;
+  const RACK_GRID_HEIGHT = 380;
+  const BOX_W_PX = RACK_GRID_WIDTH * 4;
+  const BOX_H_PX = RACK_GRID_HEIGHT;
+  const PX_PER_MM = 75 / 25.4;
+  const Wmm = BOX_W_PX / PX_PER_MM;
+  const Hmm = BOX_H_PX / PX_PER_MM;
+  const yOut = [43.80, 55.58, 70.26, 82.03, 96.70, 108.47];
+
+  const DEFAULT = {
+    xRedTap: 3.69, yRedTap: 107.72,
+    xRedMod: 16.9, yRedMod: 107.72,
+    xBlueA: [7.76, 7.76, 7.67, 7.67, 7.76, 7.67],
+    xBlueB: [17.36, 17.36, 17.36, 17.27, 17.36, 17.27],
+    yBlueDy: [34.82, 9.93, -17.96, -43.03, -70.91, -95.79],
+  };
+
+  const xA = 5.40;
+  const xB = 14.98;
+
+  const moduleEl = document.getElementById("module");
+  const panelImg = document.getElementById("panelImg");
+  const redControls = document.getElementById("redControls");
+  const blueControls = document.getElementById("blueControls");
+  const exportBox = document.getElementById("exportBox");
+  const showJacks = document.getElementById("showJacks");
+
+  let state = loadState() || JSON.parse(JSON.stringify(DEFAULT));
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem("kronoLedTunerV2");
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      if (!o.xBlueA || o.xBlueA.length !== 6) return null;
+      return o;
+    } catch (e) { return null; }
+  }
+
+  function saveState() {
+    localStorage.setItem("kronoLedTunerV2", JSON.stringify(state));
+  }
+
+  function rackLetterbox(boxW, boxH) {
+    const imgW = 156;
+    const imgH = 1024;
+    const imgA = imgW / imgH;
+    const boxA = boxW / boxH;
+    let drawW = boxW;
+    let drawH = boxH;
+    let drawX = 0;
+    let drawY = 0;
+    if (imgA < boxA) {
+      drawW = boxH * imgA;
+      drawX = (boxW - drawW) * 0.5;
+    } else if (imgA > boxA) {
+      drawH = boxW / imgA;
+      drawY = (boxH - drawH) * 0.5;
+    }
+    return { drawW, drawH, drawX, drawY };
+  }
+
+  /** Rack mm → pixel immagine (come Krono.cpp / KronoPanelBackground). */
+  function mmToImgPx(xmm, ymm) {
+    const boxW = BOX_W_PX;
+    const boxH = BOX_H_PX;
+    const lb = rackLetterbox(boxW, boxH);
+    const cx = (xmm / Wmm) * boxW;
+    const yFromBottom = (ymm / Hmm) * boxH;
+    const cyTop = boxH - yFromBottom;
+    const ix = ((cx - lb.drawX) / lb.drawW) * 156;
+    const iy = ((cyTop - lb.drawY) / lb.drawH) * 1024;
+    return [ix, iy];
+  }
+
+  function mmToStyle(xmm, ymm) {
+    const leftPct = (xmm / Wmm) * 100;
+    const topPct = (1 - ymm / Hmm) * 100;
+    return { left: leftPct + "%", top: topPct + "%" };
+  }
+
+  const ledEls = { tap: null, mod: null, blueA: [], blueB: [], jackA: [], jackB: [] };
+
+  function placeLed(el, xmm, ymm) {
+    const s = mmToStyle(xmm, ymm);
+    el.style.left = s.left;
+    el.style.top = s.top;
+  }
+
+  function buildPreview() {
+    moduleEl.querySelectorAll(".led").forEach((n) => n.remove());
+    ledEls.tap = document.createElement("div");
+    ledEls.tap.className = "led red";
+    ledEls.tap.title = "TAP (trascina)";
+    ledEls.tap.dataset.role = "tap";
+    moduleEl.appendChild(ledEls.tap);
+
+    ledEls.mod = document.createElement("div");
+    ledEls.mod.className = "led red";
+    ledEls.mod.title = "MOD (trascina)";
+    ledEls.mod.dataset.role = "mod";
+    moduleEl.appendChild(ledEls.mod);
+
+    ledEls.blueA = [];
+    ledEls.blueB = [];
+    ledEls.jackA = [];
+    ledEls.jackB = [];
+    for (let i = 0; i < 6; i++) {
+      const a = document.createElement("div");
+      a.className = "led blue";
+      a.title = (i + 1) + "A";
+      a.dataset.role = "blueA";
+      a.dataset.row = String(i);
+      moduleEl.appendChild(a);
+      ledEls.blueA.push(a);
+
+      const b = document.createElement("div");
+      b.className = "led blue";
+      b.title = (i + 1) + "B";
+      b.dataset.role = "blueB";
+      b.dataset.row = String(i);
+      moduleEl.appendChild(b);
+      ledEls.blueB.push(b);
+
+      const ja = document.createElement("div");
+      ja.className = "led ref";
+      ja.dataset.ref = "jackA";
+      ja.dataset.row = String(i);
+      moduleEl.appendChild(ja);
+      ledEls.jackA.push(ja);
+
+      const jb = document.createElement("div");
+      jb.className = "led ref";
+      jb.dataset.ref = "jackB";
+      jb.dataset.row = String(i);
+      moduleEl.appendChild(jb);
+      ledEls.jackB.push(jb);
+    }
+    syncPreview();
+  }
+
+  function syncPreview() {
+    placeLed(ledEls.tap, state.xRedTap, state.yRedTap);
+    placeLed(ledEls.mod, state.xRedMod, state.yRedMod);
+    for (let i = 0; i < 6; i++) {
+      const yLed = yOut[i] + state.yBlueDy[i];
+      placeLed(ledEls.blueA[i], state.xBlueA[i], yLed);
+      placeLed(ledEls.blueB[i], state.xBlueB[i], yLed);
+      placeLed(ledEls.jackA[i], xA, yOut[i]);
+      placeLed(ledEls.jackB[i], xB, yOut[i]);
+      const show = showJacks.checked;
+      ledEls.jackA[i].style.display = show ? "" : "none";
+      ledEls.jackB[i].style.display = show ? "" : "none";
+    }
+  }
+
+  function bindDrag() {
+    let drag = null;
+
+    function evToMm(clientX, clientY) {
+      const r = moduleEl.getBoundingClientRect();
+      const x = ((clientX - r.left) / r.width) * Wmm;
+      const y = ((r.bottom - clientY) / r.height) * Hmm;
+      return {
+        x: Math.max(0, Math.min(Wmm, x)),
+        y: Math.max(0, Math.min(Hmm, y)),
+      };
+    }
+
+    moduleEl.addEventListener("pointerdown", (e) => {
+      const t = e.target;
+      if (!t.classList.contains("led") || t.classList.contains("ref")) return;
+      e.preventDefault();
+      drag = { el: t, id: t.dataset.role, row: t.dataset.row != null ? parseInt(t.dataset.row, 10) : -1 };
+      moduleEl.setPointerCapture(e.pointerId);
+    });
+
+    moduleEl.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const { x, y } = evToMm(e.clientX, e.clientY);
+      if (drag.id === "tap") {
+        state.xRedTap = x;
+        state.yRedTap = y;
+        syncField("xRedTap"); syncField("yRedTap");
+      } else if (drag.id === "mod") {
+        state.xRedMod = x;
+        state.yRedMod = y;
+        syncField("xRedMod"); syncField("yRedMod");
+      } else if (drag.id === "blueA") {
+        const i = drag.row;
+        state.xBlueA[i] = x;
+        state.yBlueDy[i] = y - yOut[i];
+        syncBlueRow(i);
+      } else if (drag.id === "blueB") {
+        const i = drag.row;
+        state.xBlueB[i] = x;
+        state.yBlueDy[i] = y - yOut[i];
+        syncBlueRow(i);
+      }
+      syncPreview();
+    });
+
+    function endDrag(e) {
+      if (drag && moduleEl.hasPointerCapture(e.pointerId)) {
+        moduleEl.releasePointerCapture(e.pointerId);
+      }
+      drag = null;
+      saveState();
+    }
+    moduleEl.addEventListener("pointerup", endDrag);
+    moduleEl.addEventListener("pointercancel", endDrag);
+  }
+
+  const fieldMap = new Map();
+
+  function addField(container, key, label, min, max, step) {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const id = "f_" + key.replace(/\./g, "_");
+    wrap.innerHTML =
+      "<label for=\"" + id + "\">" + label + "</label>" +
+      "<div class=\"field-flex\">" +
+      "<input type=\"range\" id=\"" + id + "\" min=\"" + min + "\" max=\"" + max + "\" step=\"" + step + "\" />" +
+      "<input type=\"number\" class=\"num\" data-key=\"" + key + "\" step=\"" + step + "\" />" +
+      "</div>";
+    container.appendChild(wrap);
+    const range = wrap.querySelector("input[type=range]");
+    const num = wrap.querySelector(".num");
+    fieldMap.set(key, { range, num });
+
+    function pullFromState() {
+      const v = key.split(".").reduce((o, k) => o[k], state);
+      range.value = v;
+      num.value = Number(v).toFixed(2);
+    }
+
+    range.addEventListener("input", () => {
+      setStateKey(key, parseFloat(range.value));
+      num.value = range.value;
+      syncPreview();
+      saveState();
+    });
+    num.addEventListener("change", () => {
+      let v = parseFloat(num.value);
+      if (Number.isNaN(v)) return;
+      v = Math.max(min, Math.min(max, v));
+      setStateKey(key, v);
+      range.value = v;
+      num.value = v.toFixed(2);
+      syncPreview();
+      saveState();
+    });
+    pullFromState();
+  }
+
+  function setStateKey(key, v) {
+    const m = key.match(/^(xBlueA|xBlueB|yBlueDy)\.(\d+)$/);
+    if (m) {
+      state[m[1]][parseInt(m[2], 10)] = v;
+      return;
+    }
+    state[key] = v;
+  }
+
+  function getStateKey(key) {
+    const m = key.match(/^(xBlueA|xBlueB|yBlueDy)\.(\d+)$/);
+    if (m) return state[m[1]][parseInt(m[2], 10)];
+    return state[key];
+  }
+
+  function syncField(key) {
+    const f = fieldMap.get(key);
+    if (!f) return;
+    const v = getStateKey(key);
+    f.range.value = v;
+    f.num.value = Number(v).toFixed(2);
+  }
+
+  function syncBlueRow(i) {
+    syncField("xBlueA." + i);
+    syncField("xBlueB." + i);
+    syncField("yBlueDy." + i);
+  }
+
+  function buildControls() {
+    redControls.innerHTML = "";
+    addField(redControls, "xRedTap", "xRedTap (mm)", 0, Wmm, 0.01);
+    addField(redControls, "yRedTap", "yRedTap (mm)", 0, Hmm, 0.01);
+    addField(redControls, "xRedMod", "xRedMod (mm)", 0, Wmm, 0.01);
+    addField(redControls, "yRedMod", "yRedMod (mm)", 0, Hmm, 0.01);
+
+    blueControls.innerHTML = "";
+    for (let i = 0; i < 6; i++) {
+      const h = document.createElement("h3");
+      h.textContent = "Riga " + (i + 1) + " (jack " + (i + 1) + "A / " + (i + 1) + "B)";
+      blueControls.appendChild(h);
+      const g = document.createElement("div");
+      g.className = "row-grid";
+      addField(g, "xBlueA." + i, "xBlueA[" + i + "]", 0, Wmm, 0.01);
+      addField(g, "xBlueB." + i, "xBlueB[" + i + "]", 0, Wmm, 0.01);
+      addField(g, "yBlueDy." + i, "yBlueDy[" + i + "] (Δ da jack Y)", -100, 40, 0.01);
+      blueControls.appendChild(g);
+    }
+  }
+
+  function fmtLedArr(name, arr) {
+    return "        static constexpr float " + name + "[6] = {" +
+      arr.map((x) => x.toFixed(2) + "f").join(", ") + "};";
+  }
+
+  function exportCpp() {
+    const tTap = mmToImgPx(state.xRedTap, state.yRedTap);
+    const tMod = mmToImgPx(state.xRedMod, state.yRedMod);
+    const ixA = [];
+    const ixB = [];
+    const iyRow = [];
+    for (let i = 0; i < 6; i++) {
+      const yLed = yOut[i] + state.yBlueDy[i];
+      const pa = mmToImgPx(state.xBlueA[i], yLed);
+      const pb = mmToImgPx(state.xBlueB[i], yLed);
+      ixA.push(pa[0]);
+      ixB.push(pb[0]);
+      iyRow.push(pa[1]);
+    }
+    const lines = [
+      "        // --- LED: pixel su KronoPanel.jpg (156×1024). Incolla in Krono.cpp ---",
+      "        static constexpr float kLedRedTapIx = " + tTap[0].toFixed(2) + "f;",
+      "        static constexpr float kLedRedTapIy = " + tTap[1].toFixed(2) + "f;",
+      "        static constexpr float kLedRedModIx = " + tMod[0].toFixed(2) + "f;",
+      "        static constexpr float kLedRedModIy = " + tMod[1].toFixed(2) + "f;",
+      fmtLedArr("kLedBlueAIx", ixA),
+      fmtLedArr("kLedBlueBIx", ixB),
+      fmtLedArr("kLedBlueIy", iyRow),
+      "",
+    ];
+    exportBox.value = lines.join("\n");
+  }
+
+  showJacks.addEventListener("change", () => {
+    syncPreview();
+  });
+
+  document.getElementById("btnExport").addEventListener("click", exportCpp);
+  document.getElementById("btnReset").addEventListener("click", () => {
+    state = JSON.parse(JSON.stringify(DEFAULT));
+    buildControls();
+    syncPreview();
+    saveState();
+    exportCpp();
+  });
+  document.getElementById("btnSave").addEventListener("click", () => {
+    saveState();
+    alert("Valori salvati nel browser (localStorage). Ricarica la pagina: i numeri restano.");
+  });
+
+  buildPreview();
+  bindDrag();
+  buildControls();
+  syncPreview();
+  exportCpp();
+
+  panelImg.addEventListener("error", () => {
+    exportBox.value = "// ERRORE: non trovo ../res/KronoPanel.jpg rispetto a questo HTML.\n" +
+      "// Apri il file dalla cartella tools/ oppure correggi il tag img (src).\n\n" + exportBox.value;
+  });
+})();
+  </script>
+</body>
+</html>
