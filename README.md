@@ -1,6 +1,7 @@
 # KRONO VCV Rack Plugin
 
 VCV Rack port of KRONO, aligned with the firmware behavior of the physical module.
+This release (`v1.0.0`) mirrors KRONO firmware behavior at `v1.3.2`.
 
 ## Features
 
