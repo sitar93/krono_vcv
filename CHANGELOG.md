@@ -7,7 +7,7 @@ Release tags on GitHub use **v1.x.y** (product line). The VCV Rack manifest in `
 
 ### Highlights
 
-- **VCV Rack 2** — `plugin.json` version **2.1.0** (upgrade from 1.0.0 in v1.0.0). Install in Rack 2 user plugin folder.
+- **Release `v1.1.0`** — this is the version name for GitHub / users. Rack 2 build uses `plugin.json` **2.1.0** only as the required **2.*.*** manifest (and as the prefix of `make dist` filenames); it is not a separate “2.1.0 product release.”
 - **KRONO Eurorack firmware** — Behavior aligned with hardware firmware **v1.4.0** (release **v1.0.0** matched **v1.3.2**).
 - **30 modes** — Full Omega (1–20) and Gamma (21–30) families, aligned with [KRONO firmware](https://github.com/sitar93/krono) at that revision.
 - **Correct multi-instance behavior** — Rhythm/Gamma engine state lives in a per-module runtime (`EngineRuntime`); no shared static state between Krono instances.
