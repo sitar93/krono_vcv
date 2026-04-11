@@ -1,7 +1,15 @@
 # KRONO VCV Rack Plugin
 
+**Brand:** Jolin · **Author:** Federico Intrisano  
+
 VCV Rack port of KRONO, aligned with the firmware behavior of the physical module.  
 **Current release: `v2.1.0`** — same version in the Git tag, [`CHANGELOG.md`](CHANGELOG.md), and **`plugin.json`** (Rack 2 requires manifest major **2**; see [VCV manifest](https://vcvrack.com/manual/Manifest.html)). `make dist` produces names such as **`Krono-2.1.0-win-x64.vcvplugin`** (middle segment = manifest `version`, suffix = platform, e.g. `lin-x64`, `mac-x64`, `mac-arm64`). Paired with **KRONO Eurorack firmware v1.4.0** (30 modes, Gamma 21–30).
+
+| Link | URL |
+|------|-----|
+| Krono (product) | [jolin.tech/krono](https://jolin.tech/krono) |
+| This plugin (source) | [github.com/sitar93/krono_vcv](https://github.com/sitar93/krono_vcv) |
+| Eurorack firmware (hardware) | [github.com/sitar93/krono](https://github.com/sitar93/krono) |
 
 Release history: [`CHANGELOG.md`](CHANGELOG.md).
 
