@@ -1,8 +1,7 @@
 # KRONO VCV Rack Plugin
 
 VCV Rack port of KRONO, aligned with the firmware behavior of the physical module.  
-**Current release: `v1.1.0`** (Git tag and changelog). Paired with **KRONO Eurorack firmware v1.4.0** (30 modes, Gamma 21–30).  
-`plugin.json` must use a **2.*.*** [manifest](https://vcvrack.com/manual/Manifest.html) version for Rack 2; that string also prefixes `make dist` filenames (e.g. `Krono-2.1.0-*`). It is **not** a second public release number — the project version to cite is **`v1.1.0`**.
+**Current release: `v2.1.0`** — same version in the Git tag, [`CHANGELOG.md`](CHANGELOG.md), and **`plugin.json`** (Rack 2 requires manifest major **2**; see [VCV manifest](https://vcvrack.com/manual/Manifest.html)). `make dist` packages are named like **`Krono-2.1.0-<arch>.vcvplugin`**. Paired with **KRONO Eurorack firmware v1.4.0** (30 modes, Gamma 21–30).
 
 Release history: [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -159,7 +158,7 @@ After **`make dist`** (with `RACK_DIR` set to your [Rack SDK](https://vcvrack.co
 
 To ship **all** platforms from one environment, use the official **[rack-plugin-toolchain](https://github.com/VCVRack/rack-plugin-toolchain)** (or build on each OS and collect every `dist/*.vcvplugin`).
 
-GitHub layout (same idea as [v1.0.0 on Releases](https://github.com/sitar93/krono_vcv/releases)): template text in **`release/release_notes.txt`**. After `make dist`, run **`scripts/prepare_assets_from_dist.ps1 -UpdateReleaseNotes`** to copy **`dist/Krono-*-*.vcvplugin`** and matching **`Krono-*-*.sha256`** into **`release/`** for upload. **`BUILD_AND_RUN_KRONO.cmd`** runs that step automatically after a successful build (install path runs `make dist`, so `dist/` exists). Binaries stay gitignored (`*.vcvplugin`).
+GitHub layout (see [Releases](https://github.com/sitar93/krono_vcv/releases)): template text in **`release/release_notes.txt`**. After `make dist`, run **`scripts/prepare_assets_from_dist.ps1 -UpdateReleaseNotes`** to copy **`dist/Krono-*-*.vcvplugin`** and matching **`Krono-*-*.sha256`** into **`release/`** for upload. **`BUILD_AND_RUN_KRONO.cmd`** runs that step automatically after a successful build (install path runs `make dist`, so `dist/` exists). Binaries stay gitignored (`*.vcvplugin`).
 
 ## Release notes flow
 
@@ -169,8 +168,8 @@ GitHub layout (same idea as [v1.0.0 on Releases](https://github.com/sitar93/kron
 | 2 | Update [`CHANGELOG.md`](CHANGELOG.md) |
 | 3 | Clean build and smoke test (Rack 2) |
 | 4 | `make dist` — attach **`dist/*.vcvplugin`** (per platform) to the GitHub release; optional `.sha256` sidecars |
-| 5 | Git tag **`v1.x.y`** (product tag; manifest stays `2.x.y`) |
-| 6 | GitHub Release **`v1.x.y`** + VCV Library thread (version + commit hash) |
+| 5 | Git tag **`v2.x.y`** (match `plugin.json`; Rack 2 uses major **2**) |
+| 6 | GitHub Release **`v2.x.y`** + VCV Library thread (version + commit hash) |
 
 ## VCV Library submission
 

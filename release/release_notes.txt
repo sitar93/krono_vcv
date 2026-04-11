@@ -1,8 +1,8 @@
-VCV Rack 2 release of KRONO.
+KRONO VCV Rack plugin **v2.1.0** (Rack 2).
 
 ## Highlights
 
-* Release: **`v1.1.0`** (tag / version to cite). `plugin.json` shows **`2.1.0`** for the Rack 2 manifest only; build artifacts are named from that field (e.g. `Krono-2.1.0-*`).
+* Version **`v2.1.0`** — Git tag and `plugin.json` **2.1.0**; artifacts **`Krono-2.1.0-*`**
 * Firmware alignment: KRONO Eurorack `v1.4.0`
 * 30 operational modes (Omega 1-20, Gamma 21-30)
 * Per-module engine state; `thread_local` dispatch for Rack 2 parallel engine threads
