@@ -6,9 +6,9 @@
   "brand": "Jolin",
   "author": "Federico Intrisano",
   "authorEmail": "",
-  "authorUrl": "https://jolin.tech/krono",
+  "authorUrl": "https://jolin.tech",
   "pluginUrl": "https://jolin.tech/krono",
-  "manualUrl": "https://github.com/sitar93/krono#readme",
+  "manualUrl": "https://github.com/sitar93/krono",
   "sourceUrl": "https://github.com/sitar93/krono_vcv",
   "donateUrl": "",
   "modules": [
