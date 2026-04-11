@@ -23,6 +23,7 @@ static constexpr uint32_t kDefaultTempoIv = 60000 / 70;
 
 static constexpr uint32_t kOpModeTapHoldMs = 1000;
 static constexpr uint32_t kOpModeOmegaHoldMs = 2000;
+static constexpr uint32_t kOpModeGammaHoldMs = 3000;
 static constexpr uint32_t kOpModeOmegaMaxHoldMs = 5000;
 static constexpr uint32_t kOpModeConfirmTimeoutMs = 10000;
 static constexpr uint32_t kOpModeSaveTimeoutMs = 5000;
@@ -30,7 +31,11 @@ static constexpr uint32_t kPa1DebounceMs = 50;
 static constexpr uint32_t kCalcSwapMaxMs = 500;
 static constexpr uint32_t kCalcSwapCooldownMs = 100;
 
-static constexpr uint32_t kAuxPulseMs = 100;
+static constexpr uint32_t kAuxPulseMs = 140;
+
+// Firmware src/variables.h + main.c on_gamma_arm: krono_aux_led_pattern_start(2, ON, GAP)
+static constexpr uint32_t AUX_LED_MULTI_PULSE_ON_MS = 55;
+static constexpr uint32_t AUX_LED_MULTI_PULSE_GAP_MS = 100;
 
 // Firmware variables.h (status LED)
 static constexpr uint32_t STATUS_LED_BASE_INTERVAL_MS = 120;
@@ -47,26 +52,20 @@ static uint8_t status_user_mode_number(int modeIdx) {
     return (uint8_t)(modeIdx + 1);
 }
 
+/** Matches firmware `status_led.c`: modes 1–9 → u short; ≥10 → tens long + units short (e.g. 21 = L+L+N). */
 static uint8_t status_pulse_count(int modeIdx) {
     uint8_t u = status_user_mode_number(modeIdx);
-    if (u <= 9u)
+    if (u < 10u)
         return u;
-    if (u == 10u)
-        return 1u;
-    if (u <= 19u)
-        return (uint8_t)(1u + (u - 10u));
-    return 2u;
+    return (uint8_t)(u / 10u + u % 10u);
 }
 
 static bool status_pulse_is_long(int modeIdx, uint8_t pulse_index) {
     uint8_t u = status_user_mode_number(modeIdx);
-    if (u <= 9u)
+    if (u < 10u)
         return false;
-    if (u == 10u)
-        return true;
-    if (u <= 19u)
-        return (pulse_index == 0u);
-    return true;
+    uint8_t tens = (uint8_t)(u / 10u);
+    return pulse_index < tens;
 }
 
 /// Mirrors firmware `status_led.c` (logical on = full brightness).
@@ -227,6 +226,15 @@ static json_t* rhythm_persist_to_json(const krono::RhythmPersistState& r) {
         json_array_append_new(ph, json_integer(r.accumulate_phase_offsets[i]));
     json_object_set_new(o, "accumulate_phase_offsets", ph);
     json_object_set_new(o, "accumulate_variation_masks", u16_array_json(r.accumulate_variation_masks, 10));
+    json_object_set_new(o, "gamma_seq_freeze_frozen", r.gamma_seq_freeze_frozen ? json_true() : json_false());
+    json_object_set_new(o, "gamma_seq_freeze_step", json_integer(r.gamma_seq_freeze_step));
+    json_object_set_new(o, "gamma_seq_trip_pattern", json_integer(r.gamma_seq_trip_pattern));
+    json_object_set_new(o, "gamma_seq_trip_step", json_integer(r.gamma_seq_trip_step));
+    json_object_set_new(o, "gamma_portals_div_on_a", r.gamma_portals_div_on_a ? json_true() : json_false());
+    json_object_set_new(o, "gamma_coin_invert", r.gamma_coin_invert ? json_true() : json_false());
+    json_object_set_new(o, "gamma_ratchet_double", r.gamma_ratchet_double ? json_true() : json_false());
+    json_object_set_new(o, "gamma_antiratchet_half", r.gamma_antiratchet_half ? json_true() : json_false());
+    json_object_set_new(o, "gamma_startstop_muted", r.gamma_startstop_muted ? json_true() : json_false());
     return o;
 }
 
@@ -296,6 +304,24 @@ static void rhythm_persist_from_json(json_t* o, krono::RhythmPersistState& r) {
     }
     if ((j = json_object_get(o, "accumulate_variation_masks")))
         u16_array_from_json(j, r.accumulate_variation_masks, 10);
+    if ((j = json_object_get(o, "gamma_seq_freeze_frozen")))
+        r.gamma_seq_freeze_frozen = json_is_true(j);
+    if ((j = json_object_get(o, "gamma_seq_freeze_step")))
+        r.gamma_seq_freeze_step = (uint8_t)json_integer_value(j);
+    if ((j = json_object_get(o, "gamma_seq_trip_pattern")))
+        r.gamma_seq_trip_pattern = (uint8_t)json_integer_value(j);
+    if ((j = json_object_get(o, "gamma_seq_trip_step")))
+        r.gamma_seq_trip_step = (uint8_t)json_integer_value(j);
+    if ((j = json_object_get(o, "gamma_portals_div_on_a")))
+        r.gamma_portals_div_on_a = json_is_true(j);
+    if ((j = json_object_get(o, "gamma_coin_invert")))
+        r.gamma_coin_invert = json_is_true(j);
+    if ((j = json_object_get(o, "gamma_ratchet_double")))
+        r.gamma_ratchet_double = json_is_true(j);
+    if ((j = json_object_get(o, "gamma_antiratchet_half")))
+        r.gamma_antiratchet_half = json_is_true(j);
+    if ((j = json_object_get(o, "gamma_startstop_muted")))
+        r.gamma_startstop_muted = json_is_true(j);
 }
 
 } // namespace
@@ -489,6 +515,8 @@ struct Krono : Module {
 
     bool op_mode_select_omega = false;
     bool op_mode_omega_threshold_announced = false;
+    bool op_mode_select_gamma = false;
+    bool op_mode_gamma_threshold_announced = false;
 
     CalcSwapSmState calc_swap_sm = CalcSwapSmState::Idle;
     uint32_t calc_swap_mode_press_start_time = 0;
@@ -497,7 +525,64 @@ struct Krono : Module {
     HwStatusLed status_led;
     uint32_t aux_led_until_ms = 0;
 
-    void pulse_aux(uint32_t now) { aux_led_until_ms = now + kAuxPulseMs; }
+    /** Mirrors krono_aux_led_pattern.c (PAT_ON / PAT_GAP) for Gamma arm on PA3. */
+    enum class AuxGammaPatPhase : uint8_t { On, Gap };
+    bool aux_gamma_double_active = false;
+    uint8_t aux_gamma_pulses_done = 0;
+    AuxGammaPatPhase aux_gamma_phase = AuxGammaPatPhase::On;
+    uint32_t aux_gamma_deadline = 0;
+
+    /** Single normal-length flash on status + aux (`kAuxPulseMs`, same as `pulse_aux`). */
+    uint32_t dual_confirm_until_ms = 0;
+
+    void dual_confirm_pattern_abort() { dual_confirm_until_ms = 0; }
+
+    void aux_gamma_pattern_abort() {
+        aux_gamma_double_active = false;
+        aux_gamma_pulses_done = 0;
+        aux_gamma_deadline = 0;
+    }
+
+    void pulse_aux(uint32_t now) {
+        dual_confirm_pattern_abort();
+        aux_gamma_pattern_abort();
+        aux_led_until_ms = now + kAuxPulseMs;
+    }
+
+    /** krono_aux_led_pattern_start(2, AUX_LED_MULTI_PULSE_ON_MS, AUX_LED_MULTI_PULSE_GAP_MS) */
+    void pulse_aux_gamma(uint32_t now) {
+        dual_confirm_pattern_abort();
+        aux_led_until_ms = 0;
+        aux_gamma_double_active = true;
+        aux_gamma_pulses_done = 0;
+        aux_gamma_phase = AuxGammaPatPhase::On;
+        aux_gamma_deadline = now + (AUX_LED_MULTI_PULSE_ON_MS ? AUX_LED_MULTI_PULSE_ON_MS : 1u);
+    }
+
+    void pulse_status_and_aux_confirm(uint32_t now) {
+        aux_gamma_pattern_abort();
+        aux_led_until_ms = 0;
+        dual_confirm_until_ms = now + kAuxPulseMs;
+    }
+
+    void tick_aux_gamma_pattern(uint32_t now) {
+        while (aux_gamma_double_active) {
+            if ((int32_t)(now - aux_gamma_deadline) < 0)
+                break;
+            if (aux_gamma_phase == AuxGammaPatPhase::On) {
+                aux_gamma_pulses_done++;
+                if (aux_gamma_pulses_done >= 2) {
+                    aux_gamma_pattern_abort();
+                    return;
+                }
+                aux_gamma_phase = AuxGammaPatPhase::Gap;
+                aux_gamma_deadline = now + (AUX_LED_MULTI_PULSE_GAP_MS ? AUX_LED_MULTI_PULSE_GAP_MS : 1u);
+            } else {
+                aux_gamma_phase = AuxGammaPatPhase::On;
+                aux_gamma_deadline = now + (AUX_LED_MULTI_PULSE_ON_MS ? AUX_LED_MULTI_PULSE_ON_MS : 1u);
+            }
+        }
+    }
     static bool hysteresis_rise(float v, float low, float high, bool& armed) {
         if (v <= low)
             armed = true;
@@ -540,6 +625,8 @@ struct Krono : Module {
 
         op_mode_select_omega = false;
         op_mode_omega_threshold_announced = false;
+        op_mode_select_gamma = false;
+        op_mode_gamma_threshold_announced = false;
 
         just_exited_op_mode_sm = true;
     }
@@ -622,7 +709,9 @@ struct Krono : Module {
                     op_mode_clicks_count = 0;
                     op_mode_select_omega = false;
                     op_mode_omega_threshold_announced = false;
-                    status_led.set_override(true, true, now);
+                    op_mode_select_gamma = false;
+                    op_mode_gamma_threshold_announced = false;
+                    status_led.set_override(true, false, now);
                     pulse_aux(now);
                     op_sm = OpSmState::TapQualifiedWaitingRelease;
                 }
@@ -634,22 +723,28 @@ struct Krono : Module {
                         reset_op_mode_sm_vars(now);
                         break;
                     }
-                    if (!op_mode_omega_threshold_announced &&
-                        (now - tap_press_start_time) >= kOpModeOmegaHoldMs) {
+                    if (!op_mode_gamma_threshold_announced &&
+                        (now - tap_press_start_time) >= kOpModeGammaHoldMs) {
+                        op_mode_gamma_threshold_announced = true;
+                        op_mode_select_gamma = true;
+                        op_mode_select_omega = false;
+                        pulse_aux_gamma(now);
+                    } else if (!op_mode_omega_threshold_announced &&
+                               (now - tap_press_start_time) >= kOpModeOmegaHoldMs) {
                         op_mode_omega_threshold_announced = true;
                         op_mode_select_omega = true;
                         pulse_aux(now);
                     }
                     if (mod_button_is_debounced_pressed)
-                        status_led.set_override(true, false, now);
-                    else
                         status_led.set_override(true, true, now);
+                    else
+                        status_led.set_override(true, false, now);
                     if (mod_button_just_released_debounced) {
                         op_mode_clicks_count++;
                         mod_pressed_during_tap_hold_phase = true;
                     }
                 } else {
-                    status_led.set_override(true, true, now);
+                    status_led.set_override(true, false, now);
                     if (mod_pressed_during_tap_hold_phase) {
                         if (op_mode_clicks_count > 0) {
                             op_sm = OpSmState::AwaitingConfirmTap;
@@ -669,9 +764,9 @@ struct Krono : Module {
                 if (mod_button_just_pressed_debounced)
                     tap_release_time_for_timeout_logic = 0;
                 if (mod_button_is_debounced_pressed)
-                    status_led.set_override(true, false, now);
-                else
                     status_led.set_override(true, true, now);
+                else
+                    status_led.set_override(true, false, now);
                 if (mod_button_just_released_debounced) {
                     op_mode_clicks_count = 1;
                     op_sm = OpSmState::AwaitingConfirmTap;
@@ -681,16 +776,16 @@ struct Krono : Module {
                 }
                 if (tap_release_time_for_timeout_logic != 0 &&
                     (now - tap_release_time_for_timeout_logic >= kOpModeSaveTimeoutMs)) {
-                    pulse_aux(now);
+                    pulse_status_and_aux_confirm(now);
                     reset_op_mode_sm_vars(now);
                 }
                 break;
 
             case OpSmState::AwaitingConfirmTap:
                 if (mod_button_is_debounced_pressed)
-                    status_led.set_override(true, false, now);
-                else
                     status_led.set_override(true, true, now);
+                else
+                    status_led.set_override(true, false, now);
                 if (mod_button_just_released_debounced) {
                     op_mode_clicks_count++;
                     mode_confirm_state_enter_time = now;
@@ -699,9 +794,16 @@ struct Krono : Module {
                 if (tap_pressed_now) {
                     if (!tap_confirm_action_taken_this_press) {
                         if (op_mode_clicks_count > 0) {
-                            pulse_aux(now);
+                            pulse_status_and_aux_confirm(now);
                             const uint8_t clicks = op_mode_clicks_count;
-                            if (op_mode_select_omega) {
+                            if (op_mode_select_gamma) {
+                                uint8_t gn = clicks;
+                                if (gn > 10)
+                                    gn = (uint8_t)(((gn - 1u) % 10u) + 1u);
+                                const int idx = (int)gn + 19;
+                                if (idx >= 0 && idx < kNumOpModes)
+                                    eng.set_op_mode((krono::OpMode)idx);
+                            } else if (op_mode_select_omega) {
                                 uint8_t n = clicks;
                                 if (n > 10)
                                     n = (uint8_t)(((n - 1u) % 10u) + 1u);
@@ -819,6 +921,8 @@ struct Krono : Module {
         reset_op_mode_sm_vars(0);
         just_exited_op_mode_sm = false;
         aux_led_until_ms = 0;
+        aux_gamma_pattern_abort();
+        dual_confirm_pattern_abort();
     }
 
     void process(const ProcessArgs& args) override {
@@ -853,6 +957,7 @@ struct Krono : Module {
                             eng.set_tempo_ms(avg, false, nowMs);
                             eng.resync_to_event(nowMs);
                             last_reported_tap_interval = avg;
+                            pulse_aux(nowMs);
                         }
                         tapIntervalCount = 0;
                     }
@@ -962,11 +1067,16 @@ struct Krono : Module {
                             sv, prev_swap_cv, swapCvTrig, nowMs, last_swap_edge_ms, swap_uni_armed, swap_bi_armed);
                     })()) {
                     if (nowMs - last_calc_swap_trigger_time > kCalcSwapCooldownMs) {
-                        if (eng.op_mode == krono::OpMode::Fixed)
+                        if (krono::mode_uses_mod_gestures(eng.op_mode)) {
+                            eng.rhythm_mod_press(nowMs);
+                            pulse_aux(nowMs);
+                        } else if (eng.op_mode == krono::OpMode::Fixed) {
                             eng.advance_fixed_bank();
-                        else
+                            pulse_aux(nowMs);
+                        } else {
                             eng.toggle_calc_mode();
-                        pulse_aux(nowMs);
+                            pulse_aux(nowMs);
+                        }
                         last_calc_swap_trigger_time = nowMs;
                     }
                 }
@@ -978,12 +1088,21 @@ struct Krono : Module {
             }
         }
 
-        status_led.sync_mode((int)eng.op_mode, nowMs);
-        status_led.update(nowMs);
-        lights[STATUS_LED_LIGHT].setBrightness(status_led.out_brightness);
-        lights[AUX_LED_LIGHT].setBrightness(nowMs < aux_led_until_ms ? 1.f : 0.f);
-
         eng.process(args.sampleTime);
+
+        const uint32_t nowLed = eng.current_time_ms();
+        status_led.sync_mode((int)eng.op_mode, nowLed);
+        status_led.update(nowLed);
+        tick_aux_gamma_pattern(nowLed);
+        const bool dualConfirmOn = dual_confirm_until_ms != 0 && nowLed < dual_confirm_until_ms;
+        const float statusBright = dualConfirmOn ? 1.f : status_led.out_brightness;
+        const float auxBright = dualConfirmOn
+                                    ? 1.f
+                                    : (aux_gamma_double_active
+                                           ? (aux_gamma_phase == AuxGammaPatPhase::On ? 1.f : 0.f)
+                                           : (nowLed < aux_led_until_ms ? 1.f : 0.f));
+        lights[STATUS_LED_LIGHT].setBrightness(statusBright);
+        lights[AUX_LED_LIGHT].setBrightness(auxBright);
 
         for (int i = 0; i < NUM_OUTPUTS; i++) {
             outputs[i].setVoltage(eng.out_v[i]);

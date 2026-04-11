@@ -8,12 +8,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "vcv_rack_dialog.ps1")
+. (Join-Path $PSScriptRoot "vcv_rack_paths.ps1")
 
 if (!(Test-Path $RackExe)) {
     $fallbacks = @(
         "$env:ProgramFiles\VCV\Rack2Free\Rack.exe",
-        "$env:ProgramFiles(x86)\VCV\Rack2Pro\Rack.exe",
-        "$env:ProgramFiles(x86)\VCV\Rack2Free\Rack.exe"
+        "${env:ProgramFiles(x86)}\VCV\Rack2Pro\Rack.exe",
+        "${env:ProgramFiles(x86)}\VCV\Rack2Free\Rack.exe"
     )
     foreach ($candidate in $fallbacks) {
         if (Test-Path $candidate) {
@@ -27,7 +28,9 @@ if (!(Test-Path $RackExe)) {
     throw "Rack executable not found. Pass it explicitly with -RackExe."
 }
 
+$userDir = Get-VcvRackUserDir -RackExe $RackExe
 Write-Host "[krono] Starting Rack: $RackExe"
+Write-Host "[krono] Rack user dir (plugins, settings): $userDir"
 if ($WaitForExit) {
     $proc = Start-Process -FilePath $RackExe -PassThru
     if ($DismissCacheDialog) {
@@ -38,7 +41,7 @@ if ($WaitForExit) {
     if ($CheckAfterExit) {
         $checkScript = Join-Path $PSScriptRoot "check_krono_install.ps1"
         if (Test-Path $checkScript) {
-            & $checkScript -RequireLogLoad
+            & $checkScript -RequireLogLoad -RackExe $RackExe
         }
     }
 } else {

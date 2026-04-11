@@ -14,47 +14,13 @@ void (*g_hw_rhythm_apply)(const RhythmPersistState*) = nullptr;
 void (*g_hw_rhythm_overlay)(const RhythmPersistState*, OpMode) = nullptr;
 void (*g_hw_rhythm_mod)(OpMode, uint32_t) = nullptr;
 
-namespace {
-
-static HwEngine* g_eng = nullptr;
-
+// EngineRuntime must be defined in namespace `krono` (not in an anonymous namespace) so
+// `struct HwEngine::EngineRuntime { ... }` is valid. Constants and helper types used by the
+// included field list are declared here first.
 constexpr int K_NUM_FW_JACKS = 18;
 constexpr int K_NUM_OUTS = 12;
-
-constexpr uint32_t MIN_INTERVAL = 33;
-constexpr uint32_t MAX_INTERVAL = 6000;
-constexpr uint32_t MIN_CLOCK_INTERVAL = 10;
-constexpr uint32_t DEFAULT_PULSE_MS = 10;
 constexpr uint32_t NUM_INTERVALS_FOR_AVG = 3;
-constexpr uint32_t MAX_INTERVAL_DIFFERENCE = 3000;
-constexpr uint32_t EXT_CLOCK_TIMEOUT_MS = 5000;
 constexpr int NUM_EXT_INTERVALS_FOR_VALIDATION = 3;
-constexpr uint32_t CHAOS_DIVISOR_DEFAULT = 1000;
-constexpr uint32_t CHAOS_DIVISOR_STEP = 50;
-constexpr uint32_t CHAOS_DIVISOR_MIN = 10;
-constexpr int NUM_SWING_PROFILES = 8;
-constexpr int NUM_BINARY_BANKS = 10;
-
-static void chaos_validate_divisor(uint32_t& div) {
-    if (div < CHAOS_DIVISOR_MIN || div > CHAOS_DIVISOR_DEFAULT || (div % CHAOS_DIVISOR_STEP != 0))
-        div = CHAOS_DIVISOR_DEFAULT;
-}
-
-// Jack indices 0..11 = 1A..6B; 12..17 unused in Rack but used in some arrays.
-enum Jack : int {
-    J1A = 0,
-    J2A,
-    J3A,
-    J4A,
-    J5A,
-    J6A,
-    J1B,
-    J2B,
-    J3B,
-    J4B,
-    J5B,
-    J6B
-};
 
 struct IoHub {
     float lvl[K_NUM_FW_JACKS];
@@ -99,56 +65,87 @@ struct IoHub {
     }
 };
 
-static IoHub g_io;
+struct PhasingSt {
+    uint32_t ms_ctr = 0;
+    uint32_t pulse_rem = 0;
+};
 
-// --- Tap tempo (mirrors firmware input_handler tap averaging) ---
-static uint32_t g_tap_ivals[NUM_INTERVALS_FOR_AVG] = {};
-static uint8_t g_tap_idx = 0;
+enum class GcfVar : uint8_t { Ratchet, AntiRatchet, StartStop };
 
-// --- External clock validation (ext_clock.c simplified, polled) ---
-static uint32_t g_ext_last_rise_ms = 0;
-static uint32_t g_ext_last_isr_ms = 0;
-static uint32_t g_ext_validated_iv = 0;
-static uint32_t g_ext_validated_ev_ms = 0;
-static uint32_t g_ext_ivals[NUM_EXT_INTERVALS_FOR_VALIDATION] = {};
-static uint8_t g_ext_idx = 0;
-static bool g_ext_active = false;
+struct HwEngine::EngineRuntime {
+#include "krono_engine_runtime_fields.inc"
+};
+
+namespace {
+
+// `KR` → `g_eng->ert`. Must be `g_eng = this` in every HwEngine entry point that touches
+// `KR` (see `Krono::process()` calling tempo/resync APIs before `process()`).
+// **thread_local:** VCV Rack can run `Module::process()` for different modules on different
+// worker threads; a single global `g_eng` would race and mix IoHub state into the wrong
+// module's `out_v` while per-instance LEDs (op_mode, etc.) still look correct.
+static thread_local HwEngine* g_eng = nullptr;
+
+constexpr uint32_t MIN_INTERVAL = 33;
+constexpr uint32_t MAX_INTERVAL = 6000;
+constexpr uint32_t MIN_CLOCK_INTERVAL = 10;
+constexpr uint32_t DEFAULT_PULSE_MS = 10;
+constexpr uint32_t MAX_INTERVAL_DIFFERENCE = 3000;
+constexpr uint32_t EXT_CLOCK_TIMEOUT_MS = 5000;
+constexpr uint32_t CHAOS_DIVISOR_DEFAULT = 1000;
+constexpr uint32_t CHAOS_DIVISOR_STEP = 50;
+constexpr uint32_t CHAOS_DIVISOR_MIN = 10;
+constexpr int NUM_SWING_PROFILES = 8;
+constexpr int NUM_BINARY_BANKS = 10;
+
+static void chaos_validate_divisor(uint32_t& div) {
+    if (div < CHAOS_DIVISOR_MIN || div > CHAOS_DIVISOR_DEFAULT || (div % CHAOS_DIVISOR_STEP != 0))
+        div = CHAOS_DIVISOR_DEFAULT;
+}
+
+// Jack indices 0..11 = 1A..6B; 12..17 unused in Rack but used in some arrays.
+enum Jack : int {
+    J1A = 0,
+    J2A,
+    J3A,
+    J4A,
+    J5A,
+    J6A,
+    J1B,
+    J2B,
+    J3B,
+    J4B,
+    J5B,
+    J6B
+};
+
+#define KR (g_eng->ert.get())
 
 static void reset_tap_calc() {
-    g_tap_idx = 0;
-    for (auto& v : g_tap_ivals)
+    KR->g_tap_idx = 0;
+    for (auto& v : KR->g_tap_ivals)
         v = 0;
 }
 
 static void reset_ext_validation() {
-    g_ext_idx = 0;
-    for (auto& v : g_ext_ivals)
+    KR->g_ext_idx = 0;
+    for (auto& v : KR->g_ext_ivals)
         v = 0;
 }
 
-static bool ext_timed_out(uint32_t now_ms) {
-    if (g_ext_last_isr_ms == 0)
-        return true;
-    return now_ms > g_ext_last_isr_ms + EXT_CLOCK_TIMEOUT_MS;
-}
-
 // --- mode_default ---
-static uint32_t g_def_next_mult[K_NUM_FW_JACKS] = {};
-static uint32_t g_def_div_ctr[K_NUM_FW_JACKS] = {};
-static bool g_def_wait_f1 = false;
 static const uint32_t g_def_factors[5] = {2, 3, 4, 5, 6};
 static const int g_def_pin_a[5] = {J2A, J3A, J4A, J5A, J6A};
 static const int g_def_pin_b[5] = {J2B, J3B, J4B, J5B, J6B};
 
 static void mode_default_reset() {
-    std::memset(g_def_div_ctr, 0, sizeof(g_def_div_ctr));
+    std::memset(KR->g_def_div_ctr, 0, sizeof(KR->g_def_div_ctr));
     for (int j = 0; j < K_NUM_FW_JACKS; j++)
-        g_def_next_mult[j] = 0;
+        KR->g_def_next_mult[j] = 0;
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_def_pin_a[i], false);
-        g_io.set_output(g_def_pin_b[i], false);
+        KR->g_io.set_output(g_def_pin_a[i], false);
+        KR->g_io.set_output(g_def_pin_b[i], false);
     }
-    g_def_wait_f1 = true;
+    KR->g_def_wait_f1 = true;
 }
 
 static void mode_default_init() {
@@ -161,11 +158,11 @@ static void mode_default_update(const ModeContext& ctx) {
     bool tempo_ok = (ti >= MIN_INTERVAL && ti <= MAX_INTERVAL);
     bool mult_a = (ctx.calc_mode == CalcMode::Normal);
 
-    if (g_def_wait_f1) {
+    if (KR->g_def_wait_f1) {
         if (ctx.f1_rising_edge && tempo_ok) {
-            g_def_wait_f1 = false;
+            KR->g_def_wait_f1 = false;
             uint32_t sync_t = t;
-            std::memset(g_def_div_ctr, 0, sizeof(g_def_div_ctr));
+            std::memset(KR->g_def_div_ctr, 0, sizeof(KR->g_def_div_ctr));
             for (int i = 0; i < 5; i++) {
                 uint32_t f = g_def_factors[i];
                 uint32_t mult_iv = ti / f;
@@ -176,11 +173,11 @@ static void mode_default_update(const ModeContext& ctx) {
                 int mp = mult_a ? pa : pb;
                 int op = mult_a ? pb : pa;
                 (void)op;
-                g_def_next_mult[mp] = sync_t + mult_iv;
-                g_def_next_mult[mult_a ? pb : pa] = sync_t + mult_iv;
-                if (t >= g_def_next_mult[mp]) {
-                    g_io.pulse_ms(mp, DEFAULT_PULSE_MS);
-                    g_def_next_mult[mp] += mult_iv;
+                KR->g_def_next_mult[mp] = sync_t + mult_iv;
+                KR->g_def_next_mult[mult_a ? pb : pa] = sync_t + mult_iv;
+                if (t >= KR->g_def_next_mult[mp]) {
+                    KR->g_io.pulse_ms(mp, DEFAULT_PULSE_MS);
+                    KR->g_def_next_mult[mp] += mult_iv;
                 }
             }
             return;
@@ -200,25 +197,23 @@ static void mode_default_update(const ModeContext& ctx) {
         uint32_t mult_iv = ti / f;
         if (mult_iv < MIN_CLOCK_INTERVAL)
             mult_iv = MIN_CLOCK_INTERVAL;
-        if (t >= g_def_next_mult[mp]) {
-            g_io.pulse_ms(mp, DEFAULT_PULSE_MS);
-            g_def_next_mult[mp] += mult_iv;
-            if (g_def_next_mult[mp] < t)
-                g_def_next_mult[mp] = t + mult_iv;
+        if (t >= KR->g_def_next_mult[mp]) {
+            KR->g_io.pulse_ms(mp, DEFAULT_PULSE_MS);
+            KR->g_def_next_mult[mp] += mult_iv;
+            if (KR->g_def_next_mult[mp] < t)
+                KR->g_def_next_mult[mp] = t + mult_iv;
         }
         if (ctx.f1_rising_edge) {
-            g_def_div_ctr[dp]++;
-            if (g_def_div_ctr[dp] >= (int)f) {
-                g_io.pulse_ms(dp, DEFAULT_PULSE_MS);
-                g_def_div_ctr[dp] = 0;
+            KR->g_def_div_ctr[dp]++;
+            if (KR->g_def_div_ctr[dp] >= f) {
+                KR->g_io.pulse_ms(dp, DEFAULT_PULSE_MS);
+                KR->g_def_div_ctr[dp] = 0;
             }
         }
     }
 }
 
 // --- Euclidean ---
-static uint32_t g_euc_step_a[5] = {};
-static uint32_t g_euc_step_b[5] = {};
 static const uint8_t g_euc_k1[5] = {2, 3, 3, 4, 5};
 static const uint8_t g_euc_n1[5] = {5, 7, 8, 9, 11};
 static const uint8_t g_euc_k2[5] = {3, 4, 5, 6, 7};
@@ -240,9 +235,9 @@ static bool euc_pulse(uint8_t k, uint8_t n, uint32_t step) {
 
 static void mode_euclidean_reset() {
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_euc_pa[i], false);
-        g_io.set_output(g_euc_pb[i], false);
-        g_euc_step_a[i] = g_euc_step_b[i] = 0;
+        KR->g_io.set_output(g_euc_pa[i], false);
+        KR->g_io.set_output(g_euc_pb[i], false);
+        KR->g_euc_step_a[i] = KR->g_euc_step_b[i] = 0;
     }
 }
 
@@ -259,23 +254,23 @@ static void mode_euclidean_update(const ModeContext& ctx) {
         const uint8_t* na = s1a ? g_euc_n1 : g_euc_n2;
         const uint8_t* kb = s1a ? g_euc_k2 : g_euc_k1;
         const uint8_t* nb = s1a ? g_euc_n2 : g_euc_n1;
-        g_euc_step_a[i]++;
-        bool pa = euc_pulse(ka[i], na[i], g_euc_step_a[i]);
+        KR->g_euc_step_a[i]++;
+        bool pa = euc_pulse(ka[i], na[i], KR->g_euc_step_a[i]);
         if (na[i] > 0)
-            g_euc_step_a[i] %= na[i];
+            KR->g_euc_step_a[i] %= na[i];
         else
-            g_euc_step_a[i] = 0;
+            KR->g_euc_step_a[i] = 0;
         if (pa)
-            g_io.pulse_ms(g_euc_pa[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_euc_pa[i], DEFAULT_PULSE_MS);
 
-        g_euc_step_b[i]++;
-        bool pb = euc_pulse(kb[i], nb[i], g_euc_step_b[i]);
+        KR->g_euc_step_b[i]++;
+        bool pb = euc_pulse(kb[i], nb[i], KR->g_euc_step_b[i]);
         if (nb[i] > 0)
-            g_euc_step_b[i] %= nb[i];
+            KR->g_euc_step_b[i] %= nb[i];
         else
-            g_euc_step_b[i] = 0;
+            KR->g_euc_step_b[i] = 0;
         if (pb)
-            g_io.pulse_ms(g_euc_pb[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_euc_pb[i], DEFAULT_PULSE_MS);
     }
 }
 
@@ -287,8 +282,8 @@ static const int g_pr_jb[5] = {J2B, J3B, J4B, J5B, J6B};
 
 static void mode_prob_reset() {
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_pr_ja[i], false);
-        g_io.set_output(g_pr_jb[i], false);
+        KR->g_io.set_output(g_pr_ja[i], false);
+        KR->g_io.set_output(g_pr_jb[i], false);
     }
 }
 
@@ -305,12 +300,12 @@ static void mode_prob_update(const ModeContext& ctx) {
     for (int i = 0; i < 5; i++) {
         float r = (float)std::rand() / (float)RAND_MAX;
         if (r < pa[i])
-            g_io.pulse_ms(g_pr_ja[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_pr_ja[i], DEFAULT_PULSE_MS);
     }
     for (int i = 0; i < 5; i++) {
         float r = (float)std::rand() / (float)RAND_MAX;
         if (r < pb[i])
-            g_io.pulse_ms(g_pr_jb[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_pr_jb[i], DEFAULT_PULSE_MS);
     }
 }
 
@@ -324,8 +319,8 @@ static const int g_sq_jb[5] = {J2B, J3B, J4B, J5B, J6B};
 
 static void mode_seq_reset() {
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_sq_ja[i], false);
-        g_io.set_output(g_sq_jb[i], false);
+        KR->g_io.set_output(g_sq_ja[i], false);
+        KR->g_io.set_output(g_sq_jb[i], false);
     }
 }
 
@@ -343,19 +338,19 @@ static void mode_seq_update(const ModeContext& ctx) {
     for (int i = 0; i < 4; i++) {
         uint32_t da = sa[i];
         if (da > 0 && (c % da) == 0) {
-            g_io.pulse_ms(g_sq_ja[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_sq_ja[i], DEFAULT_PULSE_MS);
             suma = true;
         }
         uint32_t db = sb[i];
         if (db > 0 && (c % db) == 0) {
-            g_io.pulse_ms(g_sq_jb[i], DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(g_sq_jb[i], DEFAULT_PULSE_MS);
             sumb = true;
         }
     }
     if (suma)
-        g_io.pulse_ms(J6A, DEFAULT_PULSE_MS);
+        KR->g_io.pulse_ms(J6A, DEFAULT_PULSE_MS);
     if (sumb)
-        g_io.pulse_ms(J6B, DEFAULT_PULSE_MS);
+        KR->g_io.pulse_ms(J6B, DEFAULT_PULSE_MS);
 }
 
 // --- Musical ---
@@ -365,17 +360,13 @@ static const uint16_t g_mu_n2[5] = {1, 3, 5, 7, 9};
 static const uint16_t g_mu_d2[5] = {7, 4, 3, 2, 4};
 static const int g_mu_pa[5] = {J2A, J3A, J4A, J5A, J6A};
 static const int g_mu_pb[5] = {J2B, J3B, J4B, J5B, J6B};
-static uint32_t g_mu_last_a[5] = {};
-static uint32_t g_mu_last_b[5] = {};
-static bool g_mu_st_a[5] = {};
-static bool g_mu_st_b[5] = {};
 
 static void mode_musical_reset() {
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_mu_pa[i], false);
-        g_io.set_output(g_mu_pb[i], false);
-        g_mu_last_a[i] = g_mu_last_b[i] = 0;
-        g_mu_st_a[i] = g_mu_st_b[i] = false;
+        KR->g_io.set_output(g_mu_pa[i], false);
+        KR->g_io.set_output(g_mu_pb[i], false);
+        KR->g_mu_last_a[i] = KR->g_mu_last_b[i] = 0;
+        KR->g_mu_st_a[i] = KR->g_mu_st_b[i] = false;
     }
 }
 
@@ -406,7 +397,7 @@ static void mode_musical_update(const ModeContext& ctx) {
             if (iv == UINT32_MAX) {
                 if (*st) {
                     *st = false;
-                    g_io.set_output(pin, false);
+                    KR->g_io.set_output(pin, false);
                 }
                 return;
             }
@@ -420,12 +411,12 @@ static void mode_musical_update(const ModeContext& ctx) {
                 dur = 1;
             if (t - *lt >= dur) {
                 *st = !(*st);
-                g_io.set_output(pin, *st);
+                KR->g_io.set_output(pin, *st);
                 *lt = t;
             }
         };
-        proc(g_mu_pa[i], iva, &g_mu_last_a[i], &g_mu_st_a[i]);
-        proc(g_mu_pb[i], ivb, &g_mu_last_b[i], &g_mu_st_b[i]);
+        proc(g_mu_pa[i], iva, &KR->g_mu_last_a[i], &KR->g_mu_st_a[i]);
+        proc(g_mu_pb[i], ivb, &KR->g_mu_last_b[i], &KR->g_mu_st_b[i]);
     }
 }
 
@@ -440,9 +431,6 @@ static const uint8_t g_sw_p6[5] = {70, 73, 76, 79, 82};
 static const uint8_t g_sw_p7[5] = {75, 78, 81, 84, 87};
 static const uint8_t* const g_sw_prof[8] = {g_sw_p0, g_sw_p1, g_sw_p2, g_sw_p3, g_sw_p4, g_sw_p5, g_sw_p6, g_sw_p7};
 
-static uint32_t g_sw_on[K_NUM_FW_JACKS] = {};
-static uint32_t g_sw_off[K_NUM_FW_JACKS] = {};
-
 static uint32_t swing_delay(uint32_t beat_ix, uint32_t tempo, uint8_t pct) {
     if (beat_ix % 2 == 0 || pct <= 50)
         return 0;
@@ -451,10 +439,10 @@ static uint32_t swing_delay(uint32_t beat_ix, uint32_t tempo, uint8_t pct) {
 }
 
 static void mode_swing_reset() {
-    std::memset(g_sw_on, 0, sizeof(g_sw_on));
-    std::memset(g_sw_off, 0, sizeof(g_sw_off));
+    std::memset(KR->g_sw_on, 0, sizeof(KR->g_sw_on));
+    std::memset(KR->g_sw_off, 0, sizeof(KR->g_sw_off));
     for (int p = J1A; p <= J6B; p++) {
-        g_io.set_output(p, false);
+        KR->g_io.set_output(p, false);
     }
 }
 
@@ -469,18 +457,18 @@ static void mode_swing_update(const ModeContext& ctx, uint32_t& idx_a, uint32_t&
         idx_b = (idx_b + NUM_SWING_PROFILES - 1) % NUM_SWING_PROFILES;
     }
     for (int pin = J1A; pin <= J6B; pin++) {
-        if (g_sw_on[pin] != 0 && t >= g_sw_on[pin]) {
-            if (g_sw_off[pin] == 0) {
-                g_io.set_output(pin, true);
-                g_sw_off[pin] = t + DEFAULT_PULSE_MS;
+        if (KR->g_sw_on[pin] != 0 && t >= KR->g_sw_on[pin]) {
+            if (KR->g_sw_off[pin] == 0) {
+                KR->g_io.set_output(pin, true);
+                KR->g_sw_off[pin] = t + DEFAULT_PULSE_MS;
             }
-            g_sw_on[pin] = 0;
+            KR->g_sw_on[pin] = 0;
         }
     }
     for (int pin = J1A; pin <= J6B; pin++) {
-        if (g_sw_off[pin] != 0 && t >= g_sw_off[pin]) {
-            g_io.set_output(pin, false);
-            g_sw_off[pin] = 0;
+        if (KR->g_sw_off[pin] != 0 && t >= KR->g_sw_off[pin]) {
+            KR->g_io.set_output(pin, false);
+            KR->g_sw_off[pin] = 0;
         }
     }
     if (ctx.f1_rising_edge) {
@@ -495,12 +483,12 @@ static void mode_swing_update(const ModeContext& ctx, uint32_t& idx_a, uint32_t&
                     dly = swing_delay(beat, ctx.current_tempo_interval_ms, pa[ix]);
             }
             uint32_t ton = t + dly;
-            if (g_sw_off[pin] == 0 && g_sw_on[pin] == 0) {
+            if (KR->g_sw_off[pin] == 0 && KR->g_sw_on[pin] == 0) {
                 if (dly == 0) {
-                    g_io.set_output(pin, true);
-                    g_sw_off[pin] = ton + DEFAULT_PULSE_MS;
+                    KR->g_io.set_output(pin, true);
+                    KR->g_sw_off[pin] = ton + DEFAULT_PULSE_MS;
                 } else {
-                    g_sw_on[pin] = ton;
+                    KR->g_sw_on[pin] = ton;
                 }
             }
         }
@@ -512,12 +500,12 @@ static void mode_swing_update(const ModeContext& ctx, uint32_t& idx_a, uint32_t&
                     dly = swing_delay(beat, ctx.current_tempo_interval_ms, pb[ix]);
             }
             uint32_t ton = t + dly;
-            if (g_sw_off[pin] == 0 && g_sw_on[pin] == 0) {
+            if (KR->g_sw_off[pin] == 0 && KR->g_sw_on[pin] == 0) {
                 if (dly == 0) {
-                    g_io.set_output(pin, true);
-                    g_sw_off[pin] = ton + DEFAULT_PULSE_MS;
+                    KR->g_io.set_output(pin, true);
+                    KR->g_sw_off[pin] = ton + DEFAULT_PULSE_MS;
                 } else {
-                    g_sw_on[pin] = ton;
+                    KR->g_sw_on[pin] = ton;
                 }
             }
         }
@@ -525,18 +513,16 @@ static void mode_swing_update(const ModeContext& ctx, uint32_t& idx_a, uint32_t&
 }
 
 // --- Polyrhythm ---
-static uint32_t g_poly_next[K_NUM_FW_JACKS] = {};
-static uint32_t g_poly_off[K_NUM_FW_JACKS] = {};
 static const uint8_t g_px_a[4] = {3, 4, 5, 7};
 static const uint8_t g_py_a[4] = {2, 2, 3, 4};
 static const uint8_t g_px_b[4] = {5, 7, 6, 11};
 static const uint8_t g_py_b[4] = {2, 3, 4, 4};
 
 static void mode_poly_reset() {
-    std::memset(g_poly_next, 0, sizeof(g_poly_next));
-    std::memset(g_poly_off, 0, sizeof(g_poly_off));
+    std::memset(KR->g_poly_next, 0, sizeof(KR->g_poly_next));
+    std::memset(KR->g_poly_off, 0, sizeof(KR->g_poly_off));
     for (int p = J1A; p <= J6B; p++)
-        g_io.set_output(p, false);
+        KR->g_io.set_output(p, false);
 }
 
 static void mode_poly_init() {
@@ -547,19 +533,19 @@ static void mode_poly_update(const ModeContext& ctx) {
     uint32_t t = ctx.current_time_ms;
     uint32_t tempo = ctx.current_tempo_interval_ms;
     for (int pin = J1A; pin <= J6B; pin++) {
-        if (g_poly_off[pin] != 0 && t >= g_poly_off[pin]) {
-            g_io.set_output(pin, false);
-            g_poly_off[pin] = 0;
+        if (KR->g_poly_off[pin] != 0 && t >= KR->g_poly_off[pin]) {
+            KR->g_io.set_output(pin, false);
+            KR->g_poly_off[pin] = 0;
         }
     }
     if (ctx.f1_rising_edge) {
-        if (g_poly_off[J1A] == 0) {
-            g_io.set_output(J1A, true);
-            g_poly_off[J1A] = t + DEFAULT_PULSE_MS;
+        if (KR->g_poly_off[J1A] == 0) {
+            KR->g_io.set_output(J1A, true);
+            KR->g_poly_off[J1A] = t + DEFAULT_PULSE_MS;
         }
-        if (g_poly_off[J1B] == 0) {
-            g_io.set_output(J1B, true);
-            g_poly_off[J1B] = t + DEFAULT_PULSE_MS;
+        if (KR->g_poly_off[J1B] == 0) {
+            KR->g_io.set_output(J1B, true);
+            KR->g_poly_off[J1B] = t + DEFAULT_PULSE_MS;
         }
     }
     const uint8_t *xa, *ya, *xb, *yb;
@@ -583,18 +569,18 @@ static void mode_poly_update(const ModeContext& ctx) {
         uint32_t oi = (uint32_t)Y * tempo / X;
         if (oi == 0)
             oi = 1;
-        if (g_poly_next[pin] == 0 || t >= g_poly_next[pin]) {
-            if (g_poly_off[pin] == 0) {
-                g_io.set_output(pin, true);
-                g_poly_off[pin] = t + DEFAULT_PULSE_MS;
+        if (KR->g_poly_next[pin] == 0 || t >= KR->g_poly_next[pin]) {
+            if (KR->g_poly_off[pin] == 0) {
+                KR->g_io.set_output(pin, true);
+                KR->g_poly_off[pin] = t + DEFAULT_PULSE_MS;
                 t6a = true;
-                uint32_t sch = (g_poly_next[pin] == 0) ? t : g_poly_next[pin];
-                g_poly_next[pin] = sch + oi;
+                uint32_t sch = (KR->g_poly_next[pin] == 0) ? t : KR->g_poly_next[pin];
+                KR->g_poly_next[pin] = sch + oi;
             } else {
-                if (g_poly_next[pin] != 0)
-                    g_poly_next[pin] += oi;
+                if (KR->g_poly_next[pin] != 0)
+                    KR->g_poly_next[pin] += oi;
                 else
-                    g_poly_next[pin] = t + oi;
+                    KR->g_poly_next[pin] = t + oi;
             }
         }
     }
@@ -606,28 +592,28 @@ static void mode_poly_update(const ModeContext& ctx) {
         uint32_t oi = (uint32_t)Y * tempo / X;
         if (oi == 0)
             oi = 1;
-        if (g_poly_next[pin] == 0 || t >= g_poly_next[pin]) {
-            if (g_poly_off[pin] == 0) {
-                g_io.set_output(pin, true);
-                g_poly_off[pin] = t + DEFAULT_PULSE_MS;
+        if (KR->g_poly_next[pin] == 0 || t >= KR->g_poly_next[pin]) {
+            if (KR->g_poly_off[pin] == 0) {
+                KR->g_io.set_output(pin, true);
+                KR->g_poly_off[pin] = t + DEFAULT_PULSE_MS;
                 t6b = true;
-                uint32_t sch = (g_poly_next[pin] == 0) ? t : g_poly_next[pin];
-                g_poly_next[pin] = sch + oi;
+                uint32_t sch = (KR->g_poly_next[pin] == 0) ? t : KR->g_poly_next[pin];
+                KR->g_poly_next[pin] = sch + oi;
             } else {
-                if (g_poly_next[pin] != 0)
-                    g_poly_next[pin] += oi;
+                if (KR->g_poly_next[pin] != 0)
+                    KR->g_poly_next[pin] += oi;
                 else
-                    g_poly_next[pin] = t + oi;
+                    KR->g_poly_next[pin] = t + oi;
             }
         }
     }
-    if (t6a && g_poly_off[J6A] == 0) {
-        g_io.set_output(J6A, true);
-        g_poly_off[J6A] = t + DEFAULT_PULSE_MS;
+    if (t6a && KR->g_poly_off[J6A] == 0) {
+        KR->g_io.set_output(J6A, true);
+        KR->g_poly_off[J6A] = t + DEFAULT_PULSE_MS;
     }
-    if (t6b && g_poly_off[J6B] == 0) {
-        g_io.set_output(J6B, true);
-        g_poly_off[J6B] = t + DEFAULT_PULSE_MS;
+    if (t6b && KR->g_poly_off[J6B] == 0) {
+        KR->g_io.set_output(J6B, true);
+        KR->g_poly_off[J6B] = t + DEFAULT_PULSE_MS;
     }
 }
 
@@ -636,8 +622,6 @@ static const float g_lg_fa[6] = {1, 2, 4, 0.5f, 0.25f, 3};
 static const float g_lg_fb[6] = {1, 0.5f, 0.25f, 2, 4, 6};
 static const int g_lg_ja[6] = {J1A, J2A, J3A, J4A, J5A, J6A};
 static const int g_lg_jb[6] = {J1B, J2B, J3B, J4B, J5B, J6B};
-static bool g_lg_pa[6] = {};
-static bool g_lg_pb[6] = {};
 
 static bool logic_is_on(uint32_t iv, uint32_t t, float f) {
     if (f == 0.f)
@@ -650,15 +634,15 @@ static bool logic_is_on(uint32_t iv, uint32_t t, float f) {
 
 static void mode_logic_reset() {
     for (int i = 1; i < 6; i++) {
-        g_io.set_output(g_lg_ja[i], false);
-        g_io.set_output(g_lg_jb[i], false);
-        g_lg_pa[i] = g_lg_pb[i] = false;
+        KR->g_io.set_output(g_lg_ja[i], false);
+        KR->g_io.set_output(g_lg_jb[i], false);
+        KR->g_lg_pa[i] = KR->g_lg_pb[i] = false;
     }
 }
 
 static void mode_logic_init() {
-    std::memset(g_lg_pa, 0, sizeof(g_lg_pa));
-    std::memset(g_lg_pb, 0, sizeof(g_lg_pb));
+    std::memset(KR->g_lg_pa, 0, sizeof(KR->g_lg_pa));
+    std::memset(KR->g_lg_pb, 0, sizeof(KR->g_lg_pb));
 }
 
 static void mode_logic_update(const ModeContext& ctx) {
@@ -673,23 +657,16 @@ static void mode_logic_update(const ModeContext& ctx) {
         bool n = !(ia || ib);
         bool ca = (ctx.calc_mode == CalcMode::Normal) ? x : n;
         bool cb = (ctx.calc_mode == CalcMode::Normal) ? n : x;
-        if (ca && !g_lg_pa[i])
-            g_io.pulse_ms(g_lg_ja[i], DEFAULT_PULSE_MS);
-        if (cb && !g_lg_pb[i])
-            g_io.pulse_ms(g_lg_jb[i], DEFAULT_PULSE_MS);
-        g_lg_pa[i] = ca;
-        g_lg_pb[i] = cb;
+        if (ca && !KR->g_lg_pa[i])
+            KR->g_io.pulse_ms(g_lg_ja[i], DEFAULT_PULSE_MS);
+        if (cb && !KR->g_lg_pb[i])
+            KR->g_io.pulse_ms(g_lg_jb[i], DEFAULT_PULSE_MS);
+        KR->g_lg_pa[i] = ca;
+        KR->g_lg_pb[i] = cb;
     }
 }
 
 // --- Phasing ---
-struct PhasingSt {
-    uint32_t ms_ctr = 0;
-    uint32_t pulse_rem = 0;
-};
-static PhasingSt g_ph_a[5];
-static PhasingSt g_ph_b[5];
-static uint8_t g_ph_delta = 0;
 static const int g_ph_pa[5] = {J2A, J3A, J4A, J5A, J6A};
 static const int g_ph_pb[5] = {J2B, J3B, J4B, J5B, J6B};
 static const uint16_t g_ph_fac[5][2] = {{1, 1}, {1, 2}, {2, 1}, {1, 3}, {3, 1}};
@@ -710,7 +687,7 @@ static void ph_upd(int pin, PhasingSt* st, uint32_t tgt, uint32_t pw, uint32_t m
     if (tgt == UINT32_MAX || tgt == 0) {
         if (st->pulse_rem > 0) {
             st->pulse_rem = 0;
-            g_io.set_output(pin, false);
+            KR->g_io.set_output(pin, false);
         }
         st->ms_ctr = 0;
         return;
@@ -718,7 +695,7 @@ static void ph_upd(int pin, PhasingSt* st, uint32_t tgt, uint32_t pw, uint32_t m
     if (st->pulse_rem > 0) {
         if (ms_elapsed >= st->pulse_rem) {
             st->pulse_rem = 0;
-            g_io.set_output(pin, false);
+            KR->g_io.set_output(pin, false);
         } else {
             st->pulse_rem -= ms_elapsed;
         }
@@ -726,7 +703,7 @@ static void ph_upd(int pin, PhasingSt* st, uint32_t tgt, uint32_t pw, uint32_t m
     st->ms_ctr += ms_elapsed;
     if (st->ms_ctr >= tgt) {
         if (st->pulse_rem == 0) {
-            g_io.set_output(pin, true);
+            KR->g_io.set_output(pin, true);
             uint32_t ap = (pw >= tgt && tgt > 0) ? tgt - 1 : pw;
             if (ap == 0)
                 ap = 1;
@@ -737,24 +714,24 @@ static void ph_upd(int pin, PhasingSt* st, uint32_t tgt, uint32_t pw, uint32_t m
 }
 
 static void mode_phasing_reset() {
-    for (auto& s : g_ph_a)
+    for (auto& s : KR->g_ph_a)
         s = PhasingSt{};
-    for (auto& s : g_ph_b)
+    for (auto& s : KR->g_ph_b)
         s = PhasingSt{};
     for (int i = 0; i < 5; i++) {
-        g_io.set_output(g_ph_pa[i], false);
-        g_io.set_output(g_ph_pb[i], false);
+        KR->g_io.set_output(g_ph_pa[i], false);
+        KR->g_io.set_output(g_ph_pb[i], false);
     }
 }
 
 static void mode_phasing_init() {
-    g_ph_delta = 0;
+    KR->g_ph_delta = 0;
     mode_phasing_reset();
 }
 
 static void mode_phasing_update(const ModeContext& ctx) {
     if (ctx.calc_mode_changed)
-        g_ph_delta = (g_ph_delta + 1) % 3;
+        KR->g_ph_delta = (KR->g_ph_delta + 1) % 3;
     if (ctx.sync_request)
         mode_phasing_reset();
     uint32_t ba = 0, bb = UINT32_MAX;
@@ -765,7 +742,7 @@ static void mode_phasing_update(const ModeContext& ctx) {
         if (ba > MAX_INTERVAL)
             ba = MAX_INTERVAL;
         float fa = 60000.f / (float)ctx.current_tempo_interval_ms;
-        float fb = fa + g_ph_df[g_ph_delta % 3];
+        float fb = fa + g_ph_df[KR->g_ph_delta % 3];
         if (fb <= 0.f)
             bb = UINT32_MAX;
         else
@@ -779,17 +756,12 @@ static void mode_phasing_update(const ModeContext& ctx) {
     for (int i = 0; i < 5; i++) {
         uint32_t ta = ph_derived(ba, g_ph_fac[i][0], g_ph_fac[i][1]);
         uint32_t tb = ph_derived(bb, g_ph_fac[i][0], g_ph_fac[i][1]);
-        ph_upd(g_ph_pa[i], &g_ph_a[i], ta, DEFAULT_PULSE_MS, ms_el);
-        ph_upd(g_ph_pb[i], &g_ph_b[i], tb, DEFAULT_PULSE_MS, ms_el);
+        ph_upd(g_ph_pa[i], &KR->g_ph_a[i], ta, DEFAULT_PULSE_MS, ms_el);
+        ph_upd(g_ph_pb[i], &KR->g_ph_b[i], tb, DEFAULT_PULSE_MS, ms_el);
     }
 }
 
 // --- Chaos ---
-static float g_lx = 0.1f, g_ly = 0.f, g_lz = 0.f;
-static float g_px = 0.1f, g_py = 0.f, g_pz = 0.f;
-static uint32_t g_ch_trig[K_NUM_FW_JACKS] = {};
-static uint32_t g_ch_xc[5] = {};
-static uint32_t g_ch_yc[5] = {};
 static const float g_ch_xt[5] = {5, 10, 15, -5, -10};
 static const float g_ch_yt[5] = {10, 20, -10, 30, 10};
 static const bool g_ch_usey[5] = {true, false, true, false, false};
@@ -807,30 +779,30 @@ static bool chaos_cross(float c, float p, float th) {
 static void mode_chaos_reset() {
     for (int i = J2A; i <= J6B; i++) {
         if ((i <= J6A) || (i >= J2B && i <= J6B)) {
-            g_io.set_output(i, false);
-            g_ch_trig[i] = 0;
+            KR->g_io.set_output(i, false);
+            KR->g_ch_trig[i] = 0;
         }
     }
     for (int j = 0; j < 5; j++)
-        g_ch_xc[j] = g_ch_yc[j] = 0;
+        KR->g_ch_xc[j] = KR->g_ch_yc[j] = 0;
 }
 
 static void mode_chaos_init() {
-    g_lx = 0.1f;
-    g_ly = g_lz = 0.f;
-    g_px = g_lx;
-    g_py = g_ly;
-    g_pz = g_lz;
+    KR->g_lx = 0.1f;
+    KR->g_ly = KR->g_lz = 0.f;
+    KR->g_px = KR->g_lx;
+    KR->g_py = KR->g_ly;
+    KR->g_pz = KR->g_lz;
     for (int i = J1A; i <= J6B; i++) {
         if ((i <= J6A) || (i >= J1B && i <= J6B)) {
             if (i > J6A && !(i >= J1B && i <= J6B))
                 continue;
-            g_ch_trig[i] = 0;
-            g_io.set_output(i, false);
+            KR->g_ch_trig[i] = 0;
+            KR->g_io.set_output(i, false);
         }
     }
     for (int j = 0; j < 5; j++)
-        g_ch_xc[j] = g_ch_yc[j] = 0;
+        KR->g_ch_xc[j] = KR->g_ch_yc[j] = 0;
     if (g_eng)
         chaos_validate_divisor(g_eng->chaos_divisor);
 }
@@ -845,9 +817,9 @@ static void mode_chaos_update(const ModeContext& ctx) {
             continue;
         if (i > J6A && !(i >= J2B && i <= J6B))
             continue;
-        if (g_ch_trig[i] != 0 && t - g_ch_trig[i] >= DEFAULT_PULSE_MS) {
-            g_io.set_output(i, false);
-            g_ch_trig[i] = 0;
+        if (KR->g_ch_trig[i] != 0 && t - KR->g_ch_trig[i] >= DEFAULT_PULSE_MS) {
+            KR->g_io.set_output(i, false);
+            KR->g_ch_trig[i] = 0;
         }
     }
     if (ctx.calc_mode_changed) {
@@ -868,57 +840,51 @@ static void mode_chaos_update(const ModeContext& ctx) {
     int nstep = (int)((float)el / (0.01f * 1000.f));
     if (nstep < 1)
         nstep = 1;
-    g_px = g_lx;
-    g_py = g_ly;
-    g_pz = g_lz;
+    KR->g_px = KR->g_lx;
+    KR->g_py = KR->g_ly;
+    KR->g_pz = KR->g_lz;
     const float sg = 10.f, rh = 28.f, bt = 2.666f;
     for (int s = 0; s < nstep; s++) {
-        float dx = sg * (g_ly - g_lx);
-        float dy = g_lx * (rh - g_lz) - g_ly;
-        float dz = g_lx * g_ly - bt * g_lz;
-        g_lx += dx * 0.01f;
-        g_ly += dy * 0.01f;
-        g_lz += dz * 0.01f;
+        float dx = sg * (KR->g_ly - KR->g_lx);
+        float dy = KR->g_lx * (rh - KR->g_lz) - KR->g_ly;
+        float dz = KR->g_lx * KR->g_ly - bt * KR->g_lz;
+        KR->g_lx += dx * 0.01f;
+        KR->g_ly += dy * 0.01f;
+        KR->g_lz += dz * 0.01f;
     }
     for (int i = 0; i < 5; i++) {
         int oa = J2A + i;
-        if (chaos_cross(g_lx, g_px, g_ch_xt[i])) {
-            g_ch_xc[i]++;
-            if (g_ch_trig[oa] == 0 && (g_ch_xc[i] % div) == 0) {
-                g_io.set_output(oa, true);
-                g_ch_trig[oa] = t;
+        if (chaos_cross(KR->g_lx, KR->g_px, g_ch_xt[i])) {
+            KR->g_ch_xc[i]++;
+            if (KR->g_ch_trig[oa] == 0 && (KR->g_ch_xc[i] % div) == 0) {
+                KR->g_io.set_output(oa, true);
+                KR->g_ch_trig[oa] = t;
             }
         }
     }
     for (int i = 0; i < 5; i++) {
         int ob = J2B + i;
-        float cv = g_ch_usey[i] ? g_ly : g_lz;
-        float pv = g_ch_usey[i] ? g_py : g_pz;
+        float cv = g_ch_usey[i] ? KR->g_ly : KR->g_lz;
+        float pv = g_ch_usey[i] ? KR->g_py : KR->g_pz;
         if (chaos_cross(cv, pv, g_ch_yt[i])) {
-            g_ch_yc[i]++;
-            if (g_ch_trig[ob] == 0 && (g_ch_yc[i] % div) == 0) {
-                g_io.set_output(ob, true);
-                g_ch_trig[ob] = t;
+            KR->g_ch_yc[i]++;
+            if (KR->g_ch_trig[ob] == 0 && (KR->g_ch_yc[i] % div) == 0) {
+                KR->g_io.set_output(ob, true);
+                KR->g_ch_trig[ob] = t;
             }
         }
     }
 }
 
 // --- Binary ---
-static uint8_t g_bin_step = 0;
-static uint8_t g_bin_bank = 0;
-static bool g_bin_pend = false;
-static uint8_t g_bin_pbank = 0;
-static uint32_t g_bin_next = 0;
-
 static void mode_binary_reset() {
-    g_bin_step = 0;
-    g_bin_bank = 0;
-    g_bin_pend = false;
-    g_bin_pbank = 0;
-    g_bin_next = 0;
+    KR->g_bin_step = 0;
+    KR->g_bin_bank = 0;
+    KR->g_bin_pend = false;
+    KR->g_bin_pbank = 0;
+    KR->g_bin_next = 0;
     for (int i = J2A; i <= J6B; i++)
-        g_io.set_output(i, false);
+        KR->g_io.set_output(i, false);
 }
 
 static void mode_binary_init() {
@@ -930,24 +896,24 @@ static void mode_binary_update(const ModeContext& ctx) {
     uint32_t si = ctx.current_tempo_interval_ms / 4;
     if (si < 5)
         si = 5;
-    if (g_bin_next == 0)
-        g_bin_next = now;
-    if (now >= g_bin_next) {
-        g_bin_next += si;
-        if (g_bin_next < now)
-            g_bin_next = now + si;
-        uint8_t bank = g_bin_bank;
+    if (KR->g_bin_next == 0)
+        KR->g_bin_next = now;
+    if (now >= KR->g_bin_next) {
+        KR->g_bin_next += si;
+        if (KR->g_bin_next < now)
+            KR->g_bin_next = now + si;
+        uint8_t bank = KR->g_bin_bank;
         for (int i = 0; i < K_NUM_FW_JACKS; i++) {
             uint16_t pat = kBinaryPatterns[bank % kBinaryNumBanks][i];
-            if ((pat >> g_bin_step) & 1)
-                g_io.pulse_ms(i, DEFAULT_PULSE_MS);
+            if ((pat >> KR->g_bin_step) & 1)
+                KR->g_io.pulse_ms(i, DEFAULT_PULSE_MS);
         }
-        g_bin_step++;
-        if (g_bin_step >= 16) {
-            g_bin_step = 0;
-            if (g_bin_pend) {
-                g_bin_bank = g_bin_pbank;
-                g_bin_pend = false;
+        KR->g_bin_step++;
+        if (KR->g_bin_step >= 16) {
+            KR->g_bin_step = 0;
+            if (KR->g_bin_pend) {
+                KR->g_bin_bank = KR->g_bin_pbank;
+                KR->g_bin_pend = false;
             }
         }
     }
@@ -955,13 +921,13 @@ static void mode_binary_update(const ModeContext& ctx) {
 
 static void mode_binary_set_bank(uint8_t b) {
     if (b < NUM_BINARY_BANKS)
-        g_bin_bank = b;
+        KR->g_bin_bank = b;
 }
 
 static void mode_binary_bank_pending(uint8_t b) {
     if (b < NUM_BINARY_BANKS) {
-        g_bin_pbank = b;
-        g_bin_pend = true;
+        KR->g_bin_pbank = b;
+        KR->g_bin_pend = true;
     }
 }
 
@@ -992,6 +958,7 @@ static ModeInitFn g_inits[(int)OpMode::Count] = {};
 static ModeResetFn g_resets[(int)OpMode::Count] = {};
 static ModeUpdFn g_upds[(int)OpMode::Count] = {};
 
+#include "krono_gamma_impl.inc"
 #include "krono_rhythm_impl.inc"
 
 static void dispatch_init(OpMode m) {
@@ -1031,6 +998,18 @@ static void dispatch_upd(OpMode m, const ModeContext& c, HwEngine* eng) {
         case OpMode::Song:
         case OpMode::Accumulate:
             rhythm_update_mode(m, c);
+            break;
+        case OpMode::GammaSequentialReset:
+        case OpMode::GammaSequentialFreeze:
+        case OpMode::GammaSequentialTrip:
+        case OpMode::GammaSequentialFire:
+        case OpMode::GammaSequentialBounce:
+        case OpMode::GammaPortals:
+        case OpMode::GammaCoinToss:
+        case OpMode::GammaRatchet:
+        case OpMode::GammaAntiRatchet:
+        case OpMode::GammaStartStop:
+            gamma_update_mode(m, c);
             break;
         default: {
             int i = (int)m;
@@ -1122,6 +1101,46 @@ struct InitTable {
         g_resets[(int)OpMode::Accumulate] = [] { rhythm_reset_mode(OpMode::Accumulate); };
         g_upds[(int)OpMode::Accumulate] = nullptr;
 
+        g_inits[(int)OpMode::GammaSequentialReset] = [] { gamma_init_mode(OpMode::GammaSequentialReset); };
+        g_resets[(int)OpMode::GammaSequentialReset] = [] { gamma_reset_mode(OpMode::GammaSequentialReset); };
+        g_upds[(int)OpMode::GammaSequentialReset] = nullptr;
+
+        g_inits[(int)OpMode::GammaSequentialFreeze] = [] { gamma_init_mode(OpMode::GammaSequentialFreeze); };
+        g_resets[(int)OpMode::GammaSequentialFreeze] = [] { gamma_reset_mode(OpMode::GammaSequentialFreeze); };
+        g_upds[(int)OpMode::GammaSequentialFreeze] = nullptr;
+
+        g_inits[(int)OpMode::GammaSequentialTrip] = [] { gamma_init_mode(OpMode::GammaSequentialTrip); };
+        g_resets[(int)OpMode::GammaSequentialTrip] = [] { gamma_reset_mode(OpMode::GammaSequentialTrip); };
+        g_upds[(int)OpMode::GammaSequentialTrip] = nullptr;
+
+        g_inits[(int)OpMode::GammaSequentialFire] = [] { gamma_init_mode(OpMode::GammaSequentialFire); };
+        g_resets[(int)OpMode::GammaSequentialFire] = [] { gamma_reset_mode(OpMode::GammaSequentialFire); };
+        g_upds[(int)OpMode::GammaSequentialFire] = nullptr;
+
+        g_inits[(int)OpMode::GammaSequentialBounce] = [] { gamma_init_mode(OpMode::GammaSequentialBounce); };
+        g_resets[(int)OpMode::GammaSequentialBounce] = [] { gamma_reset_mode(OpMode::GammaSequentialBounce); };
+        g_upds[(int)OpMode::GammaSequentialBounce] = nullptr;
+
+        g_inits[(int)OpMode::GammaPortals] = [] { gamma_init_mode(OpMode::GammaPortals); };
+        g_resets[(int)OpMode::GammaPortals] = [] { gamma_reset_mode(OpMode::GammaPortals); };
+        g_upds[(int)OpMode::GammaPortals] = nullptr;
+
+        g_inits[(int)OpMode::GammaCoinToss] = [] { gamma_init_mode(OpMode::GammaCoinToss); };
+        g_resets[(int)OpMode::GammaCoinToss] = [] { gamma_reset_mode(OpMode::GammaCoinToss); };
+        g_upds[(int)OpMode::GammaCoinToss] = nullptr;
+
+        g_inits[(int)OpMode::GammaRatchet] = [] { gamma_init_mode(OpMode::GammaRatchet); };
+        g_resets[(int)OpMode::GammaRatchet] = [] { gamma_reset_mode(OpMode::GammaRatchet); };
+        g_upds[(int)OpMode::GammaRatchet] = nullptr;
+
+        g_inits[(int)OpMode::GammaAntiRatchet] = [] { gamma_init_mode(OpMode::GammaAntiRatchet); };
+        g_resets[(int)OpMode::GammaAntiRatchet] = [] { gamma_reset_mode(OpMode::GammaAntiRatchet); };
+        g_upds[(int)OpMode::GammaAntiRatchet] = nullptr;
+
+        g_inits[(int)OpMode::GammaStartStop] = [] { gamma_init_mode(OpMode::GammaStartStop); };
+        g_resets[(int)OpMode::GammaStartStop] = [] { gamma_reset_mode(OpMode::GammaStartStop); };
+        g_upds[(int)OpMode::GammaStartStop] = nullptr;
+
         rhythm_register_persist_hooks_fn();
     }
 };
@@ -1130,11 +1149,17 @@ static InitTable g_init_table;
 } // namespace
 
 HwEngine::HwEngine() {
+    ert.reset(new EngineRuntime());
     on_reset();
 }
 
+HwEngine::~HwEngine() = default;
+
 void HwEngine::on_reset() {
     g_eng = this;
+    if (!ert)
+        ert.reset(new EngineRuntime());
+    *ert = EngineRuntime{};
     wall_ms = 0;
     last_engine_ms = 0;
     bypass_first_update = false;
@@ -1144,9 +1169,9 @@ void HwEngine::on_reset() {
     f1_tick_counter = 0;
     sync_requested = false;
     calc_mode_just_changed = false;
-    g_ext_active = false;
-    g_ext_last_rise_ms = g_ext_last_isr_ms = 0;
-    g_ext_validated_iv = 0;
+    KR->g_ext_active = false;
+    KR->g_ext_last_rise_ms = KR->g_ext_last_isr_ms = 0;
+    KR->g_ext_validated_iv = 0;
     reset_tap_calc();
     reset_ext_validation();
     rhythm_persist = RhythmPersistState{};
@@ -1157,7 +1182,7 @@ void HwEngine::on_reset() {
     binary_bank = 0;
     calc_mode = CalcMode::Normal;
     op_mode = OpMode::Default;
-    g_io.clear();
+    KR->g_io.clear();
     dispatch_reset(OpMode::Default);
     dispatch_init(OpMode::Default);
 }
@@ -1168,7 +1193,7 @@ void HwEngine::set_op_mode(OpMode m) {
     if (m == op_mode)
         return;
     g_eng = this;
-    g_io.clear();
+    KR->g_io.clear();
     dispatch_reset(op_mode);
     op_mode = m;
     calc_mode = calc_mode_per_op[(int)op_mode];
@@ -1196,16 +1221,27 @@ void HwEngine::advance_fixed_bank() {
 }
 
 void HwEngine::rhythm_mod_press(uint32_t now_ms) {
+    g_eng = this;
     if (g_hw_rhythm_mod)
         g_hw_rhythm_mod(op_mode, now_ms);
 }
 
+void HwEngine::restart_beat_phase_now() {
+    uint32_t now = (uint32_t)wall_ms;
+    last_f1_pulse_time_ms = now;
+    f1_tick_counter = 0;
+    sync_requested = true;
+    calc_mode_just_changed = false;
+}
+
 void HwEngine::rhythm_snapshot_persist() {
+    g_eng = this;
     if (g_hw_rhythm_snapshot)
         g_hw_rhythm_snapshot(&rhythm_persist);
 }
 
 void HwEngine::rhythm_apply_persist() {
+    g_eng = this;
     if (g_hw_rhythm_apply)
         g_hw_rhythm_apply(&rhythm_persist);
 }
@@ -1219,29 +1255,35 @@ void HwEngine::toggle_calc_mode() {
 }
 
 void HwEngine::set_tempo_ms(uint32_t interval_ms, bool is_external, uint32_t event_ms) {
+    g_eng = this;
     if (interval_ms == 0)
         return;
     active_tempo_interval_ms = interval_ms;
     if (is_external) {
-        g_ext_active = true;
+        KR->g_ext_active = true;
         last_f1_pulse_time_ms = event_ms;
         f1_tick_counter = 0;
-        g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
-        g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+        if (!mode_skips_auto_f1_clock_on_1ab(op_mode)) {
+            KR->g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+        }
     } else {
         last_f1_pulse_time_ms = event_ms;
         f1_tick_counter = 0;
-        g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
-        g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+        if (!mode_skips_auto_f1_clock_on_1ab(op_mode)) {
+            KR->g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
+            KR->g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+        }
     }
 }
 
 void HwEngine::resync_to_event(uint32_t event_ms) {
+    g_eng = this;
     last_f1_pulse_time_ms = event_ms;
     f1_tick_counter = 0;
     sync_requested = true;
     calc_mode_just_changed = false;
-    g_io.clear();
+    KR->g_io.clear();
     dispatch_reset(op_mode);
     dispatch_init(op_mode);
     if (op_mode == OpMode::Fixed)
@@ -1265,7 +1307,8 @@ void HwEngine::on_external_validated(uint32_t interval_ms, uint32_t event_ms) {
 }
 
 void HwEngine::on_external_timeout() {
-    g_ext_active = false;
+    g_eng = this;
+    KR->g_ext_active = false;
 }
 
 void HwEngine::process(float st) {
@@ -1281,8 +1324,10 @@ void HwEngine::process(float st) {
 
         bool f1_edge = false;
         if (step_now - last_f1_pulse_time_ms >= active_tempo_interval_ms) {
-            g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
-            g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+            if (!mode_skips_auto_f1_clock_on_1ab(op_mode)) {
+                KR->g_io.pulse_ms(J1A, DEFAULT_PULSE_MS);
+                KR->g_io.pulse_ms(J1B, DEFAULT_PULSE_MS);
+            }
             last_f1_pulse_time_ms += active_tempo_interval_ms;
             f1_tick_counter++;
             f1_edge = true;
@@ -1309,10 +1354,10 @@ void HwEngine::process(float st) {
         calc_mode_just_changed = false;
     }
 
-    g_io.step_audio(st);
-    g_io.to_rack(out_v);
+    KR->g_io.step_audio(st);
+    KR->g_io.to_rack(out_v);
     if (op_mode == OpMode::Fixed)
-        binary_bank = g_bin_bank;
+        binary_bank = KR->g_bin_bank;
 }
 
 } // namespace krono

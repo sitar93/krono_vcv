@@ -1,10 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 namespace krono {
 
-// Mirrors firmware operational_mode_t order (20 modes).
+// Mirrors firmware operational_mode_t order (modes.h on sitar93/krono main).
 enum class OpMode : int {
     Default = 0,
     Euclidean,
@@ -26,15 +27,30 @@ enum class OpMode : int {
     Density,
     Song,
     Accumulate,
+    GammaSequentialReset,
+    GammaSequentialFreeze,
+    GammaSequentialTrip,
+    GammaSequentialFire,
+    GammaSequentialBounce,
+    GammaPortals,
+    GammaCoinToss,
+    GammaRatchet,
+    GammaAntiRatchet,
+    GammaStartStop,
     Count
 };
 
 enum class CalcMode : int { Normal = 0, Swapped };
 
-/** Modes 12–20 (indices 11–19): short MOD runs mode gesture, not calc swap / fixed bank. */
+/** Modes 12–30 (indices 11–29): short MOD → mode gesture (not calc swap / fixed bank). */
 inline bool mode_uses_mod_gestures(OpMode m) {
     const int i = (int)m;
-    return i >= 11 && i <= 19;
+    return i >= 11 && i < (int)OpMode::Count;
+}
+
+/** Gamma family: internal F1 timing continues but 1A/1B are not auto-pulsed each beat. */
+inline bool mode_skips_auto_f1_clock_on_1ab(OpMode m) {
+    return (int)m >= (int)OpMode::GammaSequentialReset;
 }
 
 struct ModeContext {
@@ -81,11 +97,24 @@ struct RhythmPersistState {
     uint16_t accumulate_active_mask = 1;
     uint8_t accumulate_phase_offsets[kRhythmNumOutputs] = {};
     uint16_t accumulate_variation_masks[kRhythmNumOutputs] = {};
+    bool gamma_seq_freeze_frozen = false;
+    uint8_t gamma_seq_freeze_step = 0; // 0..11
+    uint8_t gamma_seq_trip_pattern = 0;
+    uint8_t gamma_seq_trip_step = 0;
+    bool gamma_portals_div_on_a = false; // firmware name; stores multiply path (see mode_gamma_portals)
+    bool gamma_coin_invert = false;
+    bool gamma_ratchet_double = false;
+    bool gamma_antiratchet_half = false;
+    bool gamma_startstop_muted = false;
 };
 
 struct HwEngine {
     static constexpr int NUM_OUTS = 12;
     static constexpr int NUM_FW_JACKS = 18;
+
+    /** Per-instance rhythm/Gamma state (was static in .cpp — must not be shared between Rack modules). */
+    struct EngineRuntime;
+    std::unique_ptr<EngineRuntime> ert;
 
     OpMode op_mode = OpMode::Default;
     CalcMode calc_mode = CalcMode::Normal;
@@ -113,6 +142,7 @@ struct HwEngine {
     float out_v[NUM_OUTS] = {};
 
     HwEngine();
+    ~HwEngine();
 
     void on_reset();
     void set_op_mode(OpMode m);
@@ -121,6 +151,8 @@ struct HwEngine {
     void advance_fixed_bank();
     /** Modes 12–20: short MOD gesture (matches mode_dispatch_mod_press). */
     void rhythm_mod_press(uint32_t now_ms);
+    /** Gamma mode 21 MOD/CV: align F1 phase to now without 1A/1B catch-up burst. */
+    void restart_beat_phase_now();
 
     void rhythm_snapshot_persist();
     void rhythm_apply_persist();

@@ -18,7 +18,7 @@ fi
 echo "[krono] Using RACK_DIR=${RACK_DIR}"
 echo "[krono] Ensuring required MSYS2 packages..."
 # MINGW64 (msvcrt) matches most Rack + libRack Windows builds better than UCRT64-only GCC.
-pacman -S --needed --noconfirm base-devel mingw-w64-x86_64-toolchain jq
+pacman -S --needed --noconfirm base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-zstd jq
 
 echo "[krono] Configuring MINGW64 toolchain..."
 export PATH="/mingw64/bin:/usr/bin:${PATH}"

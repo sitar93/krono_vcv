@@ -1,206 +1,170 @@
 # KRONO VCV Rack Plugin
 
-VCV Rack port of KRONO, aligned with the firmware behavior of the physical module.
-This release (`v1.0.0`) mirrors KRONO firmware behavior at `v1.3.2`.
+VCV Rack port of KRONO, aligned with the firmware behavior of the physical module.  
+GitHub release **`v1.1.0`** — manifest version **`2.1.0`** in `plugin.json` (MAJOR **2** = Rack 2 line, required by the [VCV manifest](https://vcvrack.com/manual/Manifest.html)). Paired with **KRONO Eurorack firmware v1.4.0** (30 modes, Gamma 21–30).
+
+Release history: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Features
 
-- One module: `Krono`
-- 20 operational modes
-- Tap tempo + external clock support
-- MOD/SWAP behaviors aligned to firmware logic
-- 12 gate outputs (`1A..6A`, `1B..6B`)
-- Patch persistence (tempo, mode, calc/fixed/rhythm state)
+| Aspect | Detail |
+|--------|--------|
+| Module | Single module `Krono` |
+| Modes | 30 operational modes (Omega: TAP ~2 s + MOD; Gamma: TAP ~3 s + MOD) |
+| Clock | Tap tempo + external clock |
+| I/O | MOD/SWAP aligned to firmware; 12 gate outputs `1A..6A`, `1B..6B` |
+| State | Patch persistence (tempo, mode, calc, fixed bank, rhythm, Gamma params) |
 
-## Module Operation (Buttons, Outputs, Modes)
+## Module operation
 
-This VCV module mirrors KRONO firmware behavior from the hardware project.
+This VCV module mirrors KRONO firmware from the hardware project.
 
-### Controls (Tap / Mode / External Inputs)
+### Controls
 
-- **Tap (PA0 equivalent):**
-  - sets tempo from manual taps (after valid measured intervals)
-  - long hold enters mode-change UI
-  - confirm selected mode with a short tap
-- **Mode button (PA1 equivalent):**
-  - short press: calculation swap in base modes
-  - in modes `12..20`, short press triggers the mode action instead of standard swap
-  - during mode-change UI, each release increments the target mode index
-- **External clock (PB3 equivalent):**
-  - when stable, overrides tap tempo
-  - on timeout, tempo falls back to last valid internal/external timing
-- **External gate / MOD input (PB4 equivalent):**
-  - calculation swap trigger when allowed by current mode/state
-  - mode-specific action in dedicated rhythm modes, aligned to firmware logic
+| Role | VCV / HW | Behavior |
+|------|----------|----------|
+| Tap | Button (PA0) | Sets tempo from valid tap intervals; long hold enters mode-change UI; short tap confirms mode |
+| Mode | Button (PA1) | Short press: calc swap in base modes; in modes 12–30, short press runs the mode gesture; in mode-change UI, each release increments target index |
+| External clock | Input (PB3) | When stable, overrides tap tempo; on timeout, falls back to last valid internal or external timing |
+| Swap / MOD CV | Input (PB4) | Swap or bank advance when allowed; in modes 12–30, same gesture as MOD short press |
 
-### Function Details (Practical Behavior)
+### Behavior notes
 
-- **Tap tempo acquisition:** tempo updates after valid measured tap intervals; this avoids accidental BPM jumps from noisy or isolated taps.
-- **Clock priority:** external clock has priority when stable; when it disappears, KRONO returns to an internally valid timing reference.
-- **Swap/MOD semantics:** in classic modes, swap mainly changes A/B dataset roles; in rhythm modes (`12..20`) the control drives each mode's internal performance function.
-- **State recall:** tempo, selected mode, swap-related state, and mode-specific parameters are restored from saved patch state.
+| Topic | Detail |
+|-------|--------|
+| Tap tempo | Updates only after valid measured intervals to avoid accidental BPM jumps |
+| Clock priority | External clock wins when stable; loss of clock returns to a valid internal reference |
+| Swap / MOD | Classic modes: mainly A/B dataset roles; modes 12–30: drives each mode’s performance function |
+| State recall | Tempo, mode, swap state, and mode-specific parameters restore from the patch |
 
 ### Outputs
 
-- **`1A` and `1B`:** base clock outputs (F1 pair)
-- **`2A..6A` and `2B..6B`:** mode-dependent gate patterns
-- Total outputs: **12 gates**
-- Group behavior:
-  - many modes use **A** and **B** as paired datasets (e.g. multiply vs divide, set A vs set B)
-  - **Swap** exchanges/inverts group roles depending on active mode
+| Output | Role |
+|--------|------|
+| `1A`, `1B` | Base clock (F1). In Gamma modes 21–30 they are **not** auto-pulsed every beat; internal F1 still advances the mode |
+| `2A..6A`, `2B..6B` | Mode-dependent gates |
+| All | 12 gate outputs total; many modes pair **A** and **B** datasets; **Swap** exchanges roles where applicable |
 
-### Modes Overview
+### Mode families
 
-Krono provides **20 operational modes**:
+| Range | Family |
+|-------|--------|
+| 1–10 | Clock and rhythm transforms with A/B swap |
+| 11 | Fixed 16-step pattern banks (MOD/CV cycles bank) |
+| 12–20 | Rhythm modes: MOD drives mode-specific actions |
+| 21–30 | Gamma modes: TAP hold past ~3 s (Aux double-pulse), then MOD count + TAP confirm |
 
-1. `DEFAULT`
-2. `EUCLIDEAN`
-3. `MUSICAL`
-4. `PROBABILISTIC`
-5. `SEQUENTIAL`
-6. `SWING`
-7. `POLYRHYTHM`
-8. `LOGIC`
-9. `PHASING`
-10. `CHAOS`
-11. `FIXED`
-12. `DRIFT`
-13. `FILL`
-14. `SKIP`
-15. `STUTTER`
-16. `MORPH`
-17. `MUTE`
-18. `DENSITY`
-19. `SONG`
-20. `ACCUMULATE`
+## Modes overview
 
-Mode families (practical view):
+| # | Slug | Summary |
+|---|------|---------|
+| 1 | `DEFAULT` | Mult on A, div on B; Swap exchanges roles |
+| 2 | `EUCLIDEAN` | Euclidean sets on A/B; Swap exchanges sets |
+| 3 | `MUSICAL` | Musical ratio sets; Swap flips A/B assignment |
+| 4 | `PROBABILISTIC` | Probability-weighted triggers; Swap inverts tendencies |
+| 5 | `SEQUENTIAL` | Sequence-style clocks; Swap swaps families |
+| 6 | `SWING` | Swing on alternating beats; Swap exchanges profiles |
+| 7 | `POLYRHYTHM` | X:Y relationships; Swap exchanges assignments |
+| 8 | `LOGIC` | Logic of internal clocks; Swap swaps logic styles |
+| 9 | `PHASING` | Detuned phase drift; Swap swaps deviation side |
+| 10 | `CHAOS` | Chaotic thresholds; Swap toggles scaling behavior |
+| 11 | `FIXED` | 16-step banks; MOD/CV advances bank |
+| 12 | `DRIFT` | Mutating groove; MOD elastic drift probability |
+| 13 | `FILL` | Fill contrast; MOD steps fill amount |
+| 14 | `SKIP` | Probabilistic skips; MOD elastic skip probability |
+| 15 | `STUTTER` | Stutter lengths; MOD cycles length |
+| 16 | `MORPH` | Evolving patterns; MOD freeze / unfreeze |
+| 17 | `MUTE` | Mute choreography; MOD varies mute phases |
+| 18 | `DENSITY` | Sparse ↔ dense; MOD steps density |
+| 19 | `SONG` | Base vs variation sections; MOD schedules new base |
+| 20 | `ACCUMULATE` | Layering + reset; MOD freeze / unfreeze engine |
+| 21 | `GAMMA_SEQUENTIAL_RESET` | 12-step sweep 1A…6A then 1B…6B; MOD/CV resets phase |
+| 22 | `GAMMA_SEQUENTIAL_FREEZE` | Same sweep; MOD toggles freeze on step |
+| 23 | `GAMMA_SEQUENTIAL_TRIP` | Six trip patterns; MOD cycles pattern |
+| 24 | `GAMMA_SEQUENTIAL_FIRE` | MOD arms 1A+6B; following F1s fire paired outputs |
+| 25 | `GAMMA_SEQUENTIAL_BOUNCE` | MOD one-shot accel (A) / decel (B) burst |
+| 26 | `GAMMA_PORTALS` | Held “door” pairs; MOD toggles multiply vs divide cadence |
+| 27 | `GAMMA_COIN_TOSS` | Random A vs B per pair; MOD inverts probability weights |
+| 28 | `GAMMA_RATCHET` | Mult A, div B; MOD doubles effective tempo (×2) |
+| 29 | `GAMMA_ANTI_RATCHET` | Same routing; MOD halves effective tempo (÷2) |
+| 30 | `GAMMA_START_STOP` | Same routing; MOD toggles muted latch on outputs |
 
-- **1..10:** clock/rhythm transformations with A/B swap logic
-- **11:** fixed 16-step pattern banks (bank cycling behavior)
-- **12..20:** generative rhythm behaviors where MOD/short actions control each mode-specific function
+## Modes in detail
 
-### Modes in Detail
+| # | Mode | Description |
+|---|------|-------------|
+| 1 | **DEFAULT** | Group A multiplies the base clock, group B divides it. Swap exchanges the two roles. |
+| 2 | **EUCLIDEAN** | Euclidean distributions with different pulse/step sets for A and B. Swap exchanges those sets. |
+| 3 | **MUSICAL** | Musically oriented timing ratios vs base tempo. Swap flips which ratio set drives each group. |
+| 4 | **PROBABILISTIC** | Triggers from probability curves per output. A and B use opposing tendencies; swap inverts them. |
+| 5 | **SEQUENTIAL** | Sequence-style clocks (contrasting numerical families) on A/B. Swap swaps which family drives which group. |
+| 6 | **SWING** | Swing on alternating beats with per-output feel. Swap exchanges swing datasets / profile mapping. |
+| 7 | **POLYRHYTHM** | X:Y-style relationships; composite behavior on the top output per group. Swap exchanges ratio assignments. |
+| 8 | **LOGIC** | Gates from logical combinations of internal clock streams. Swap flips which group gets each logic style. |
+| 9 | **PHASING** | Slight rate detuning for phase drift over time. Swap changes deviation assignment. |
+| 10 | **CHAOS** | Chaotic thresholding for rhythm triggers. Swap steps alternate chaos scaling / division. |
+| 11 | **FIXED** | 16-step fixed patterns, multiple banks. MOD or PB4 cycles banks; bank is persistent. |
+| 12 | **DRIFT** | Base pattern with controlled random mutation over bars. MOD walks drift probability up/down. |
+| 13 | **FILL** | Strong sparse vs active contrast. MOD steps through a pronounced fill amount loop. |
+| 14 | **SKIP** | Probabilistic skips on a base groove. MOD changes skip probability over an elastic range. |
+| 15 | **STUTTER** | Repeats with stutter-length tiers; base pattern gets subtle refresh. MOD cycles stutter length. |
+| 16 | **MORPH** | Continuously evolving coherent rhythms. MOD freezes or resumes evolution. |
+| 17 | **MUTE** | Additive/subtractive mute choreography. MOD toggles random mute phases and reintroductions. |
+| 18 | **DENSITY** | Event density from sparse to busy. MOD steps density with audible regeneration. |
+| 19 | **SONG** | Alternates base and variation sections. MOD schedules a fresh base for the next cycle. |
+| 20 | **ACCUMULATE** | Layers outputs over time with offsets and variation, then hard reset. MOD freezes or unfreezes the engine. |
+| 21 | **GAMMA_SEQUENTIAL_RESET** | One active jack per F1 in order 1A…6A, then 1B…6B (12 steps). Calc swap plays the cycle backward. MOD/CV restarts beat phase (no 1A/1B catch-up burst). |
+| 22 | **GAMMA_SEQUENTIAL_FREEZE** | Same 12-step sweep as 21. MOD toggles freeze so the step index stops advancing on F1. |
+| 23 | **GAMMA_SEQUENTIAL_TRIP** | Six different multi-output “trip” patterns per F1. MOD cycles pattern index; calc swap reverses step order within the pattern. |
+| 24 | **GAMMA_SEQUENTIAL_FIRE** | Idle until MOD: fires 1A and 6B together, then on subsequent F1 edges fires paired outputs (2A+5B … 6A+1B) until the burst ends. |
+| 25 | **GAMMA_SEQUENTIAL_BOUNCE** | MOD arms a one-shot scene: per-output pulse trains with accel timing on A rows and decel on B rows (firmware-timed gaps). |
+| 26 | **GAMMA_PORTALS** | Each pair holds one side high (“open door”). Divide mode: toggle pairs on F1 counts. Multiply mode: toggle each pair on T/k ms. MOD switches divide vs multiply and resets cadence. |
+| 27 | **GAMMA_COIN_TOSS** | On each F1, each pair randomly fires A or B with tiered odds. MOD inverts those odds (complement). |
+| 28 | **GAMMA_RATCHET** | Classic mult-on-A, div-on-B per factor row. MOD toggles “double-speed” effective period for mult scheduling (firmware ratchet). |
+| 29 | **GAMMA_ANTI_RATCHET** | Same routing as 28. MOD toggles half-speed effective period for mult scheduling. |
+| 30 | **GAMMA_START_STOP** | Same routing as 28–29. MOD toggles a mute latch so mult/div pulses are suppressed while latched. |
 
-1. **DEFAULT**  
-   Group A outputs are multiplications of the base clock, while Group B outputs are divisions. Swap exchanges the two roles.
+## Mode change and save
 
-2. **EUCLIDEAN**  
-   Generates Euclidean distributions across outputs, using different pulse/step sets for A and B. Swap exchanges those sets.
+| Step | Action |
+|------|--------|
+| Enter | Hold **Tap** to enter mode-change state |
+| Omega bank | Keep holding ~2 s before release to select modes **11–20** (Aux short blink) |
+| Gamma bank | Keep holding ~3 s before release to select modes **21–30** (Aux longer double-pulse style) |
+| After release | Wait without Mode to dismiss, or press Mode N times then **Tap** to confirm mode N in the armed bank |
+| Save timeout | If you only released Tap, waiting without Mode triggers save-dismiss (firmware-aligned timeout) |
+| Persisted | Tempo, mode, calc per mode, fixed bank, rhythm state, Gamma parameters |
 
-3. **MUSICAL**  
-   Uses musically oriented timing ratios relative to the base tempo. Swap flips which ratio set is assigned to each group.
+## Repository layout
 
-4. **PROBABILISTIC**  
-   Emits triggers from probability curves per output. A and B use opposite probability tendencies; swap inverts those tendencies.
+| Path | Contents |
+|------|----------|
+| `src/` | Plugin DSP, engine, UI |
+| `res/` | Panel and assets |
+| `scripts/` | Windows PowerShell and MSYS2 helpers |
+| `tools/` | Dev utilities (e.g. LED tuner HTML) |
+| `Makefile` | Rack build entry |
+| `plugin.json` | Manifest |
 
-5. **SEQUENTIAL**  
-   Runs sequence-based clocks (e.g. contrasting numerical families) on A/B groups. Swap changes which sequence family drives each group.
-
-6. **SWING**  
-   Applies swing timing on alternating beats with per-output feel. Swap exchanges the swing datasets/profile mapping across groups.
-
-7. **POLYRHYTHM**  
-   Produces X:Y-style relationships on main outputs, with a composite behavior on the highest output in each group. Swap exchanges ratio assignments.
-
-8. **LOGIC**  
-   Derives gates from logical combinations of internal clock streams (different logic types per group). Swap flips which group receives each logic style.
-
-9. **PHASING**  
-   Introduces slight rate detuning between groups to create phase drift patterns over time. Swap changes deviation behavior/assignment.
-
-10. **CHAOS**  
-    Uses chaotic signal thresholding to create rhythm triggers. Swap steps through alternate chaos scaling/division behavior.
-
-11. **FIXED**  
-    16-step fixed pattern engine with multiple banks. MOD/PB4 cycles banks; selected bank is persistent.
-
-12. **DRIFT**  
-    Base pattern with controlled random mutation over bars. MOD controls drift intensity in an elastic up/down loop.
-
-13. **FILL**  
-    Fill-oriented groove shaping with strong contrast between sparse and active regions. MOD steps through a pronounced fill amount loop.
-
-14. **SKIP**  
-    Probabilistic skip engine on top of a base groove. MOD changes skip probability through an elastic range.
-
-15. **STUTTER**  
-    Repeats hits using stutter-length tiers; base pattern receives subtle ongoing refresh. MOD cycles stutter length states.
-
-16. **MORPH**  
-    Continuously evolving generative stream of coherent rhythm states. MOD freezes/unfreezes evolution so you can hold or resume motion.
-
-17. **MUTE**  
-    Additive/subtractive mute choreography across channels. MOD toggles random mute phases and reintroductions with slight variation.
-
-18. **DENSITY**  
-    Controls event density from very sparse to very active textures. MOD steps density levels in a broad loop with audible regeneration.
-
-19. **SONG**  
-    Alternates between generated base and variation sections in a repeating form. MOD schedules a fresh base loop for the next cycle.
-
-20. **ACCUMULATE**  
-    Automatically layers outputs over time with phase offsets and variation, then performs a hard reset and restarts. MOD freezes/unfreezes the accumulation engine.
-
-### Mode Change and Save Behavior
-
-- Hold **Tap** to enter mode-change state.
-- Optional extended hold enables the upper mode bank path (`11..20`) before release.
-- After release:
-  - wait without Mode presses to save current state, or
-  - click Mode to select target and Tap to confirm.
-- Saved state includes tempo, mode, and mode-specific parameters.
-
-## Repository Layout
-
-- `src/` plugin DSP/engine/UI code
-- `res/` panel and visual assets
-- `scripts/` Windows PowerShell and MSYS2 helpers
-- `tools/` local utility files used during development
-- `Makefile` Rack build entrypoint
-- `plugin.json` manifest metadata
-
-## Quick Start (Windows)
+## Quick start (Windows)
 
 ### Prerequisites
 
-- MSYS2 installed (default `C:\msys64`)
-- VCV Rack SDK installed (example `D:\Files\VCV\Rack-SDK`)
+| Requirement | Notes |
+|-------------|-------|
+| MSYS2 | Default `C:\msys64` |
+| VCV Rack SDK | e.g. `D:\Files\VCV\Rack-SDK` |
 
-### Build
+### Commands
 
-From PowerShell, in repo root:
+| Goal | Command |
+|------|---------|
+| Build | `.\scripts\build_windows.ps1 -RackDir "D:\Files\VCV\Rack-SDK"` |
+| Build + install | `.\scripts\build_windows.ps1 -RackDir "D:\Files\VCV\Rack-SDK" -InstallToRack` |
+| Run Rack | `.\scripts\run_rack.ps1` |
+| One-click | Double-click `BUILD_AND_RUN_KRONO.cmd` (build, install, verify, launch) |
 
-```powershell
-.\scripts\build_windows.ps1 -RackDir "D:\Files\VCV\Rack-SDK"
-```
-
-### Build + Install to Rack
-
-```powershell
-.\scripts\build_windows.ps1 -RackDir "D:\Files\VCV\Rack-SDK" -InstallToRack
-```
-
-### Run Rack
-
-```powershell
-.\scripts\run_rack.ps1
-```
-
-### One-click Build/Install/Run
-
-You can also double-click:
-
-- `BUILD_AND_RUN_KRONO.cmd`
-
-It performs:
-
-1. build in MSYS2
-2. install to Rack user plugins folder
-3. install verification
-4. Rack launch
-
-## Manual Build (MSYS2)
+## Manual build (MSYS2)
 
 ```bash
 export RACK_DIR="/d/Files/VCV/Rack-SDK"
@@ -208,48 +172,54 @@ cd "/d/path/to/krono_vcv"
 make
 ```
 
-Useful targets:
+| Target | Result |
+|--------|--------|
+| `make` | Build plugin |
+| `make dist` | Package into `dist/` |
+| `make install` | Install to Rack user plugin folder |
 
-- `make` build plugin
-- `make dist` create distributable package in `dist/`
-- `make install` install to Rack user plugin folder
+### Files for GitHub Releases (`.vcvplugin`, `.sha256`)
 
-## Release Notes Flow
+After **`make dist`** (with `RACK_DIR` set to your [Rack SDK](https://vcvrack.com/manual/Building.html)), packages appear under **`dist/`** in the project root (folder is gitignored until you build):
 
-Recommended release flow:
+| Artifact | Where it comes from |
+|----------|-------------------|
+| **`Krono-<version>-<arch>.vcvplugin`** | Written by the SDK `plugin.mk` into **`dist/`** — one file per build machine/arch (e.g. `win-x64`, `lin-x64`, `mac-x64`, `mac-arm64`). There is no separate `.zip` from stock `make dist`; the installable bundle **is** the `.vcvplugin`. |
+| **`.sha256`** | **Not** generated by `make dist`. If you want checksum sidecars for the release page, create them yourself, e.g. `Get-FileHash -Algorithm SHA256 dist\Krono-2.1.0-win-x64.vcvplugin` in PowerShell and save the hex digest to a text file, or use `sha256sum` on Linux/macOS. |
 
-1. update `plugin.json` version
-2. run clean build and smoke test
-3. create package with `make dist`
-4. tag release (`vX.Y.Z`) in git
-5. publish GitHub release with changelog
-6. request/update listing in VCV Library thread
+To ship **all** platforms from one environment, use the official **[rack-plugin-toolchain](https://github.com/VCVRack/rack-plugin-toolchain)** (or build on each OS and collect every `dist/*.vcvplugin`).
 
-## VCV Library Submission (Open-source path)
+GitHub layout (same idea as [v1.0.0 on Releases](https://github.com/sitar93/krono_vcv/releases)): template text in **`release/release_notes.txt`**. After `make dist`, run **`scripts/prepare_assets_from_dist.ps1 -UpdateReleaseNotes`** to copy **`Krono-2.1.0-*.vcvplugin`** and **`Krono-2.1.0-*.sha256`** into **`release/`** for upload. **`BUILD_AND_RUN_KRONO.cmd`** runs that step automatically after a successful build (install path runs `make dist`, so `dist/` exists). Binaries stay gitignored (`*.vcvplugin`).
 
-Use the VCV Library GitHub workflow:
+## Release notes flow
 
-- create (or reuse) one issue thread for your plugin slug
-- post plugin metadata (name, license, URLs)
-- for each update, post new version + commit hash
+| Step | Task |
+|------|------|
+| 1 | Bump `plugin.json` version (Rack 2 line: `2.x.y`) |
+| 2 | Update [`CHANGELOG.md`](CHANGELOG.md) |
+| 3 | Clean build and smoke test (Rack 2) |
+| 4 | `make dist` — attach **`dist/*.vcvplugin`** (per platform) to the GitHub release; optional `.sha256` sidecars |
+| 5 | Git tag **`v1.x.y`** (product tag; manifest stays `2.x.y`) |
+| 6 | GitHub Release **`v1.x.y`** + VCV Library thread (version + commit hash) |
 
-References:
+## VCV Library submission
 
-- [VCV Library repository workflow](https://raw.githubusercontent.com/VCVRack/library/master/README.md)
-- [VCV Plugin Manifest docs](https://vcvrack.com/manual/Manifest.html)
-- [VCV Plugin Development Tutorial](https://vcvrack.com/manual/PluginDevelopmentTutorial.html)
+| Resource | URL |
+|----------|-----|
+| Library workflow | [VCV Library README](https://raw.githubusercontent.com/VCVRack/library/master/README.md) |
+| Manifest | [VCV Plugin Manifest](https://vcvrack.com/manual/Manifest.html) |
+| Tutorial | [Plugin Development Tutorial](https://vcvrack.com/manual/PluginDevelopmentTutorial.html) |
+
+Create or reuse one issue thread per plugin slug; post metadata and, for each update, version + commit hash.
 
 ## License
 
 Same license as KRONO firmware:
 
-- **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International**
-- Identifier used in manifest: `CC-BY-NC-SA-4.0`
-- Full text: `LICENSE` and `LICENSE.txt`
+| Field | Value |
+|-------|-------|
+| Name | Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International |
+| SPDX / manifest | `CC-BY-NC-SA-4.0` |
+| Full text | `LICENSE`, `LICENSE.txt` |
 
-In short:
-
-- You may share and adapt.
-- Attribution is required.
-- Commercial use is not allowed.
-- Derivatives must keep the same license.
+You may share and adapt; attribution required; no commercial use; derivatives keep the same license.
