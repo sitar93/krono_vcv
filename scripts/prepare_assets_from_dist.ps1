@@ -1,4 +1,4 @@
-# Copies dist/*.vcvplugin into release/ and writes Krono-<ver>-<arch>.sha256 (hex only, uppercase).
+# Copies dist/*.vcvplugin into release/ and writes a .sha256 sidecar per file (hex only, uppercase), e.g. Krono-2.1.0-win-x64.sha256.
 # Optionally patches release/release_notes.txt SHA256 line for the first win-x64 package.
 # Usage: .\scripts\prepare_assets_from_dist.ps1 [-UpdateReleaseNotes]
 # Prerequisite: make dist (e.g. via install_to_rack_msys2.sh) so dist/ contains Krono-*.vcvplugin
