@@ -41,7 +41,7 @@ This VCV module mirrors KRONO firmware from the hardware project.
 
 | Output | Role |
 |--------|------|
-| `1A`, `1B` | Base clock (F1). In Gamma modes 21–30 they are **not** auto-pulsed every beat; internal F1 still advances the mode |
+| `1A`, `1B` | **Main beat** at the current **base tempo** (same idea as the hardware doc: clock on **1A**/**1B**). In Gamma modes 21–30 they are **not** auto-pulsed every beat; the internal **base-tempo** clock still advances the mode |
 | `2A..6A`, `2B..6B` | Mode-dependent gates |
 | All | 12 gate outputs total; many modes pair **A** and **B** datasets; **Swap** exchanges roles where applicable |
 
@@ -54,75 +54,44 @@ This VCV module mirrors KRONO firmware from the hardware project.
 | 12–20 | Rhythm modes: MOD drives mode-specific actions |
 | 21–30 | Gamma modes: TAP hold past ~3 s (Aux double-pulse), then MOD count + TAP confirm |
 
-## Modes overview
+## Operational modes
 
-| # | Slug | Summary |
+Mode **names** and **summaries** match the [KRONO Eurorack firmware user reference](https://github.com/sitar93/krono/blob/main/README.md#operational-modes-reference) (hardware docs). Enum order is the same as `operational_mode_t` in [`src/modes/modes.h`](https://github.com/sitar93/krono/blob/main/src/modes/modes.h). On the module, **Swap** is the short **Mode** button (or calc swap) where applicable; **MOD** is the same short press in rhythm/Gamma ranges — in VCV use the **Swap / MOD CV** input as the firmware uses **PB4**. **Base tempo** is the main musical period (hardware README: **main beat** on **1A**/**1B** at the active interval); the summaries below say **beat** where they mean one tick of that clock.
+
+| # | Mode | Summary |
 |---|------|---------|
-| 1 | `DEFAULT` | Mult on A, div on B; Swap exchanges roles |
-| 2 | `EUCLIDEAN` | Euclidean sets on A/B; Swap exchanges sets |
-| 3 | `MUSICAL` | Musical ratio sets; Swap flips A/B assignment |
-| 4 | `PROBABILISTIC` | Probability-weighted triggers; Swap inverts tendencies |
-| 5 | `SEQUENTIAL` | Sequence-style clocks; Swap swaps families |
-| 6 | `SWING` | Swing on alternating beats; Swap exchanges profiles |
-| 7 | `POLYRHYTHM` | X:Y relationships; Swap exchanges assignments |
-| 8 | `LOGIC` | Logic of internal clocks; Swap swaps logic styles |
-| 9 | `PHASING` | Detuned phase drift; Swap swaps deviation side |
-| 10 | `CHAOS` | Chaotic thresholds; Swap toggles scaling behavior |
-| 11 | `FIXED` | 16-step banks; MOD/CV advances bank |
-| 12 | `DRIFT` | Mutating groove; MOD elastic drift probability |
-| 13 | `FILL` | Fill contrast; MOD steps fill amount |
-| 14 | `SKIP` | Probabilistic skips; MOD elastic skip probability |
-| 15 | `STUTTER` | Stutter lengths; MOD cycles length |
-| 16 | `MORPH` | Evolving patterns; MOD freeze / unfreeze |
-| 17 | `MUTE` | Mute choreography; MOD varies mute phases |
-| 18 | `DENSITY` | Sparse ↔ dense; MOD steps density |
-| 19 | `SONG` | Base vs variation sections; MOD schedules new base |
-| 20 | `ACCUMULATE` | Layering + reset; MOD freeze / unfreeze engine |
-| 21 | `GAMMA_SEQUENTIAL_RESET` | 12-step sweep 1A…6A then 1B…6B; MOD/CV resets phase |
-| 22 | `GAMMA_SEQUENTIAL_FREEZE` | Same sweep; MOD toggles freeze on step |
-| 23 | `GAMMA_SEQUENTIAL_TRIP` | Six trip patterns; MOD cycles pattern |
-| 24 | `GAMMA_SEQUENTIAL_FIRE` | MOD arms 1A+6B; following F1s fire paired outputs |
-| 25 | `GAMMA_SEQUENTIAL_BOUNCE` | MOD one-shot accel (A) / decel (B) burst |
-| 26 | `GAMMA_PORTALS` | Held “door” pairs; MOD toggles multiply vs divide cadence |
-| 27 | `GAMMA_COIN_TOSS` | Random A vs B per pair; MOD inverts probability weights |
-| 28 | `GAMMA_RATCHET` | Mult A, div B; MOD doubles effective tempo (×2) |
-| 29 | `GAMMA_ANTI_RATCHET` | Same routing; MOD halves effective tempo (÷2) |
-| 30 | `GAMMA_START_STOP` | Same routing; MOD toggles muted latch on outputs |
+| 1 | **DEFAULT** | Group A: clocks at **multiples** ×2…×6 of base on 2A–6A. Group B: **divisions** /2…/6 on 2B–6B. **Swap:** inverts A/B roles (A divisions, B multiplications). |
+| 2 | **EUCLIDEAN** | Euclidean rhythms with distinct K/N sets per group on outputs 2–6. **Swap:** swaps K/N sets between A and B. |
+| 3 | **MUSICAL** | Rhythmic ratios vs base tempo on 2–6 per group. **Swap:** swaps ratio sets A/B. |
+| 4 | **PROBABILISTIC** | Per-output trigger probabilities on each **beat**; A rising, B decreasing curves. **Swap:** inverts curves between groups. |
+| 5 | **SEQUENTIAL** | Fibonacci-style vs primes-style sequences on A/B. **Swap:** alternate sequence sets (e.g. Lucas / composites). |
+| 6 | **SWING** | Per-output swing on even beats; multiple profiles. **Swap:** swaps swing sets. Profiles persist in saved state. |
+| 7 | **POLYRHYTHM** | X:Y polyrhythms on 2–5; output 6 = logical OR of 2–5 in that group. **Swap:** swaps X:Y sets. |
+| 8 | **LOGIC** | Combines **Default-mode** derived signals: Group A **XOR** between paired A/B default outputs; Group B **NOR**. **Swap:** swaps gate types (A↔B roles in that scheme). |
+| 9 | **PHASING** | Group B at slightly detuned rate vs A; derived clocks on 3–6. **Swap:** cycles deviation amount. |
+| 10 | **CHAOS** | Lorenz attractor threshold crossings; shared divisor across outputs 2–6. **Swap:** steps divisor (wrapped). Divisor persisted. |
+| 11 | **FIXED** | 16-step fixed patterns at **4×** main clock; drum-style mapping on 2–6; **10 banks** (0–9), **MOD** advances bank; banks persisted. |
+| 12 | **DRIFT** | Fixed base pattern with stochastic mutation at bar boundaries. **MOD:** elastic loop on drift probability (`10→…→100→…→0`), with stronger unpredictability and occasional larger jumps at higher values. MOD state persisted. |
+| 13 | **FILL** | Fill-focused groove shaping with sparse low-end behavior at low values. **MOD:** **drastic loop** on fill (`0→10→…→50→0`), no gradual descent. Low values stay very empty with kick emphasis; each step is intentionally more audible. MOD state persisted. |
+| 14 | **SKIP** | Base pattern; probabilistic skipping of hits. **MOD:** elastic loop on skip probability: `10→…→100→…→0→…`. MOD state persisted. |
+| 15 | **STUTTER** | Base pattern with stutter lengths. **MOD:** **drastic loop** `2→4→8→2…` (no descending/off cycle). After each full stutter cycle, the base rhythm is slightly randomized to keep motion alive. MOD state persisted. |
+| 16 | **MORPH** | Fully generative morph stream (A→B→C→D… continuously evolving pseudo-chaotically while staying musically coherent). **MOD:** freeze current state; next press resumes and advances to the next generated state. Freeze state persisted. |
+| 17 | **MUTE** | Random additive/subtractive mute flow by output. **MOD:** each press mutes or unmutes one random channel depending on phase; each unmute also applies a slight random pattern variation to that channel. Mute state persisted. |
+| 18 | **DENSITY** | Density-sculpted variation layer. **MOD:** **drastic loop** `0→10→…→200→0`; low values are highly sparse; each increase regenerates rhythmic variation (not just density). MOD state persisted. |
+| 19 | **SONG** | Sectioned form with generated loops: bars **1–6** = generated base loop, bars **7–8** = generated variation loop. **MOD:** schedules a brand-new random base loop for the next cycle; without MOD, the current base loop repeats. Variation state persisted. |
+| 20 | **ACCUMULATE** | Automatic accumulation loop with random output activation and random phase offsets on each newly activated output. Each activation also applies a slight random loop variation on the activated output. At max accumulation it resets **drastically** to minimum and repeats. **MOD:** freeze/unfreeze automatic accumulation. Accumulation state persisted. |
+| 21 | **SEQUENTIAL RESET** | **One output active per beat**, full sweep **1A…6A** then **1B…6B** (12 steps). **MOD:** restart beat phase. **Swap:** play the 12-step cycle backward. **1A/1B** follow this pattern, not a separate copy of the main beat. |
+| 22 | **SEQUENTIAL FREEZE** | Same sweep as 21. **MOD:** toggle freeze (hold step). Persisted. |
+| 23 | **SEQUENTIAL TRIP** | Six scripted trip patterns. **MOD:** next pattern, reset step. **Swap:** reverse step order. Persisted. |
+| 24 | **SEQUENTIAL FIRE** | **MOD:** **1A** and **6B** together; then on **each following beat** one **pair** steps **up** on A and **down** on B (**2A+5B**, **3A+4B**, … **6A+1B**). Normal trigger length. |
+| 25 | **SEQUENTIAL BOUNCE** | **MOD:** all **12** jacks fire **once** together, then each **row** runs a **mini burst**: A side **speeds up** (gaps shrink; top A row finishes first), B side **slows down** (bottom B row finishes last). **Six** extra pulses per jack after the unison; timing in **fixed seconds**, not locked to current BPM. |
+| 26 | **PORTALS** | **Held levels** (not short triggers): each column is a “door” — one side **high**, one **low**, for the whole beat. **Divide** (default): row **1** swaps every beat, row **2** every two beats, row **3** every three, and so on. **MOD:** **multiply** — higher rows **alternate faster within the beat**. Persisted (multiply vs divide). |
+| 27 | **COIN TOSS** | On **each beat**, per column random **A** vs **B** with fixed odds (85/75/65/50/25/15 % for **A**). **MOD:** flip to **mirrored** odds. Persisted. |
+| 28 | **RATCHET** | **1A–6A** multiplication, **1B–6B** division (like Default, including first outputs). **MOD:** **double** the effective “fast” side **without** restarting the bar—subdivisions **stretch** to match; the underlying beat grid **does not** jump. Persisted. |
+| 29 | **ANTI-RATCHET** | Same routing as 28. **MOD:** **halve** that effective speed the same way—**no** extra pause, **no** forced reset of the divided side. Persisted. |
+| 30 | **STARTnSTOP** | Same routing as 28. **MOD:** **mute** all gates; **internal** timing **keeps running** so you return in phase when unmuted. Persisted. |
 
-## Modes in detail
-
-| # | Mode | Description |
-|---|------|-------------|
-| 1 | **DEFAULT** | Group A multiplies the base clock, group B divides it. Swap exchanges the two roles. |
-| 2 | **EUCLIDEAN** | Euclidean distributions with different pulse/step sets for A and B. Swap exchanges those sets. |
-| 3 | **MUSICAL** | Musically oriented timing ratios vs base tempo. Swap flips which ratio set drives each group. |
-| 4 | **PROBABILISTIC** | Triggers from probability curves per output. A and B use opposing tendencies; swap inverts them. |
-| 5 | **SEQUENTIAL** | Sequence-style clocks (contrasting numerical families) on A/B. Swap swaps which family drives which group. |
-| 6 | **SWING** | Swing on alternating beats with per-output feel. Swap exchanges swing datasets / profile mapping. |
-| 7 | **POLYRHYTHM** | X:Y-style relationships; composite behavior on the top output per group. Swap exchanges ratio assignments. |
-| 8 | **LOGIC** | Gates from logical combinations of internal clock streams. Swap flips which group gets each logic style. |
-| 9 | **PHASING** | Slight rate detuning for phase drift over time. Swap changes deviation assignment. |
-| 10 | **CHAOS** | Chaotic thresholding for rhythm triggers. Swap steps alternate chaos scaling / division. |
-| 11 | **FIXED** | 16-step fixed patterns, multiple banks. MOD or PB4 cycles banks; bank is persistent. |
-| 12 | **DRIFT** | Base pattern with controlled random mutation over bars. MOD walks drift probability up/down. |
-| 13 | **FILL** | Strong sparse vs active contrast. MOD steps through a pronounced fill amount loop. |
-| 14 | **SKIP** | Probabilistic skips on a base groove. MOD changes skip probability over an elastic range. |
-| 15 | **STUTTER** | Repeats with stutter-length tiers; base pattern gets subtle refresh. MOD cycles stutter length. |
-| 16 | **MORPH** | Continuously evolving coherent rhythms. MOD freezes or resumes evolution. |
-| 17 | **MUTE** | Additive/subtractive mute choreography. MOD toggles random mute phases and reintroductions. |
-| 18 | **DENSITY** | Event density from sparse to busy. MOD steps density with audible regeneration. |
-| 19 | **SONG** | Alternates base and variation sections. MOD schedules a fresh base for the next cycle. |
-| 20 | **ACCUMULATE** | Layers outputs over time with offsets and variation, then hard reset. MOD freezes or unfreezes the engine. |
-| 21 | **GAMMA_SEQUENTIAL_RESET** | One active jack per F1 in order 1A…6A, then 1B…6B (12 steps). Calc swap plays the cycle backward. MOD/CV restarts beat phase (no 1A/1B catch-up burst). |
-| 22 | **GAMMA_SEQUENTIAL_FREEZE** | Same 12-step sweep as 21. MOD toggles freeze so the step index stops advancing on F1. |
-| 23 | **GAMMA_SEQUENTIAL_TRIP** | Six different multi-output “trip” patterns per F1. MOD cycles pattern index; calc swap reverses step order within the pattern. |
-| 24 | **GAMMA_SEQUENTIAL_FIRE** | Idle until MOD: fires 1A and 6B together, then on subsequent F1 edges fires paired outputs (2A+5B … 6A+1B) until the burst ends. |
-| 25 | **GAMMA_SEQUENTIAL_BOUNCE** | MOD arms a one-shot scene: per-output pulse trains with accel timing on A rows and decel on B rows (firmware-timed gaps). |
-| 26 | **GAMMA_PORTALS** | Each pair holds one side high (“open door”). Divide mode: toggle pairs on F1 counts. Multiply mode: toggle each pair on T/k ms. MOD switches divide vs multiply and resets cadence. |
-| 27 | **GAMMA_COIN_TOSS** | On each F1, each pair randomly fires A or B with tiered odds. MOD inverts those odds (complement). |
-| 28 | **GAMMA_RATCHET** | Classic mult-on-A, div-on-B per factor row. MOD toggles “double-speed” effective period for mult scheduling (firmware ratchet). |
-| 29 | **GAMMA_ANTI_RATCHET** | Same routing as 28. MOD toggles half-speed effective period for mult scheduling. |
-| 30 | **GAMMA_START_STOP** | Same routing as 28–29. MOD toggles a mute latch so mult/div pulses are suppressed while latched. |
+**Modes 12–20:** only **short MOD** (no MOD+TAP). **Gamma 21–30:** same short **MOD** gesture; **Swap** still selects **calculation swap** where the firmware uses it (e.g. backward sweep in **SEQUENTIAL RESET**).
 
 ## Mode change and save
 
