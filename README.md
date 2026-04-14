@@ -192,8 +192,6 @@ Create or reuse one issue thread per plugin slug; post metadata and, for each up
 
 ## License
 
-Same license as KRONO firmware:
-
 | Field | Value |
 |-------|-------|
 | Name | Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International |
