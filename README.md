@@ -106,6 +106,7 @@ Mode **names** and **summaries** match the [KRONO Eurorack firmware user referen
 | Step | Action |
 |------|--------|
 | Enter | Hold **Tap** to enter mode-change state |
+| Alpha bank | On entry, at the **first Aux blink** (~1 s), release Tap and start pressing **Mode (MOD) immediately** to select modes **1–10** |
 | Beta bank | Keep holding ~2 s before release to select modes **11–20** (Aux short blink) |
 | Gamma bank | Keep holding ~3 s before release to select modes **21–30** (Aux longer double-pulse style) |
 | After release | Wait without Mode to dismiss, or press Mode N times then **Tap** to confirm mode N in the armed bank |
