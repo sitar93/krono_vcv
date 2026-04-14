@@ -1,0 +1,3 @@
+[submodule "metamodule"]
+	path = metamodule
+	url = https://github.com/sitar93/krono_metamodule.git
