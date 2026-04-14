@@ -4,7 +4,7 @@ KRONO VCV Rack plugin **v2.1.0** (Rack 2).
 
 * Version **`v2.1.0`** — Git tag and `plugin.json` **2.1.0**; artifacts **`Krono-2.1.0-*`**
 * Firmware alignment: KRONO Eurorack `v1.4.0`
-* 30 operational modes (Omega 1-20, Gamma 21-30)
+* 30 operational modes (Alpha 1-10, Beta 11-20, Gamma 21-30)
 * Per-module engine state; `thread_local` dispatch for Rack 2 parallel engine threads
 * Tap tempo + external clock; MOD/SWAP behavior aligned with firmware
 * Patch persistence: tempo, mode, calc, fixed bank, rhythm, Gamma parameters

@@ -9,7 +9,7 @@ From **v2.1.0** onward, the **Git tag** matches **`plugin.json`**: both use **2.
 
 - **v2.1.0** — Git tag and `plugin.json` **2.1.0** aligned; Rack 2 build (successor to **v1.0.0** / manifest 1.0.0).
 - **KRONO Eurorack firmware** — Behavior aligned with hardware firmware **v1.4.0** (**v1.0.0** of this plugin matched firmware **v1.3.2**).
-- **30 modes** — Full Omega (1–20) and Gamma (21–30) families, aligned with [KRONO firmware](https://github.com/sitar93/krono) at that revision.
+- **30 modes** — Full Alpha (1-10), Beta (11-20), and Gamma (21-30) families, aligned with [KRONO firmware](https://github.com/sitar93/krono) at that revision.
 - **Correct multi-instance behavior** — Rhythm/Gamma engine state lives in a per-module runtime (`EngineRuntime`); no shared static state between Krono instances.
 - **Thread safety (Rack 2)** — Engine pointer for firmware-style dispatch uses `thread_local`, so parallel engine threads do not cross-wire instances.
 - **LED feedback** — On mode confirm (final tap) and on save-dismiss timeout, **status** and **aux** flash together with a **single** normal-length pulse (same duration as a standard aux blink), not the Gamma double-pulse pattern.

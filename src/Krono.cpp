@@ -22,9 +22,9 @@ static constexpr uint32_t kExtTimeoutMs = 5000;
 static constexpr uint32_t kDefaultTempoIv = 60000 / 70;
 
 static constexpr uint32_t kOpModeTapHoldMs = 1000;
-static constexpr uint32_t kOpModeOmegaHoldMs = 2000;
+static constexpr uint32_t kOpModeBetaHoldMs = 2000;
 static constexpr uint32_t kOpModeGammaHoldMs = 3000;
-static constexpr uint32_t kOpModeOmegaMaxHoldMs = 5000;
+static constexpr uint32_t kOpModeBetaMaxHoldMs = 5000;
 static constexpr uint32_t kOpModeConfirmTimeoutMs = 10000;
 static constexpr uint32_t kOpModeSaveTimeoutMs = 5000;
 static constexpr uint32_t kPa1DebounceMs = 50;
@@ -513,8 +513,8 @@ struct Krono : Module {
     bool pa1_mod_change_current_raw_state = false;
     bool pa1_mod_change_last_raw_state = false;
 
-    bool op_mode_select_omega = false;
-    bool op_mode_omega_threshold_announced = false;
+    bool op_mode_select_beta = false;
+    bool op_mode_beta_threshold_announced = false;
     bool op_mode_select_gamma = false;
     bool op_mode_gamma_threshold_announced = false;
 
@@ -623,8 +623,8 @@ struct Krono : Module {
         pa1_mod_change_current_raw_state = false;
         pa1_mod_change_last_raw_state = false;
 
-        op_mode_select_omega = false;
-        op_mode_omega_threshold_announced = false;
+        op_mode_select_beta = false;
+        op_mode_beta_threshold_announced = false;
         op_mode_select_gamma = false;
         op_mode_gamma_threshold_announced = false;
 
@@ -707,8 +707,8 @@ struct Krono : Module {
                 } else if (now - tap_press_start_time >= kOpModeTapHoldMs) {
                     mod_pressed_during_tap_hold_phase = false;
                     op_mode_clicks_count = 0;
-                    op_mode_select_omega = false;
-                    op_mode_omega_threshold_announced = false;
+                    op_mode_select_beta = false;
+                    op_mode_beta_threshold_announced = false;
                     op_mode_select_gamma = false;
                     op_mode_gamma_threshold_announced = false;
                     status_led.set_override(true, false, now);
@@ -719,7 +719,7 @@ struct Krono : Module {
 
             case OpSmState::TapQualifiedWaitingRelease:
                 if (tap_pressed_now) {
-                    if ((now - tap_press_start_time) >= kOpModeOmegaMaxHoldMs) {
+                    if ((now - tap_press_start_time) >= kOpModeBetaMaxHoldMs) {
                         reset_op_mode_sm_vars(now);
                         break;
                     }
@@ -727,12 +727,12 @@ struct Krono : Module {
                         (now - tap_press_start_time) >= kOpModeGammaHoldMs) {
                         op_mode_gamma_threshold_announced = true;
                         op_mode_select_gamma = true;
-                        op_mode_select_omega = false;
+                        op_mode_select_beta = false;
                         pulse_aux_gamma(now);
-                    } else if (!op_mode_omega_threshold_announced &&
-                               (now - tap_press_start_time) >= kOpModeOmegaHoldMs) {
-                        op_mode_omega_threshold_announced = true;
-                        op_mode_select_omega = true;
+                    } else if (!op_mode_beta_threshold_announced &&
+                               (now - tap_press_start_time) >= kOpModeBetaHoldMs) {
+                        op_mode_beta_threshold_announced = true;
+                        op_mode_select_beta = true;
                         pulse_aux(now);
                     }
                     if (mod_button_is_debounced_pressed)
@@ -803,7 +803,7 @@ struct Krono : Module {
                                 const int idx = (int)gn + 19;
                                 if (idx >= 0 && idx < kNumOpModes)
                                     eng.set_op_mode((krono::OpMode)idx);
-                            } else if (op_mode_select_omega) {
+                            } else if (op_mode_select_beta) {
                                 uint8_t n = clicks;
                                 if (n > 10)
                                     n = (uint8_t)(((n - 1u) % 10u) + 1u);

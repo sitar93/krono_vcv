@@ -18,7 +18,7 @@ Release history: [`CHANGELOG.md`](CHANGELOG.md).
 | Aspect | Detail |
 |--------|--------|
 | Module | Single module `Krono` |
-| Modes | 30 operational modes (Omega: TAP ~2 s + MOD; Gamma: TAP ~3 s + MOD) |
+| Modes | 30 operational modes (Alpha 1-10, Beta 11-20, Gamma 21-30) |
 | Clock | Tap tempo + external clock |
 | I/O | MOD/SWAP aligned to firmware; 12 gate outputs `1A..6A`, `1B..6B` |
 | State | Patch persistence (tempo, mode, calc, fixed bank, rhythm, Gamma params) |
@@ -68,14 +68,14 @@ Mode **names** and **summaries** match the [KRONO Eurorack firmware user referen
 
 | # | Mode | Summary |
 |---|------|---------|
-| 1 | **DEFAULT** | Group A: clocks at **multiples** ×2…×6 of base on 2A–6A. Group B: **divisions** /2…/6 on 2B–6B. **Swap:** inverts A/B roles (A divisions, B multiplications). |
+| 1 | **RATIOS** | Group A: clocks at **multiples** ×2…×6 of base on 2A–6A. Group B: **divisions** /2…/6 on 2B–6B. **Swap:** inverts A/B roles (A divisions, B multiplications). |
 | 2 | **EUCLIDEAN** | Euclidean rhythms with distinct K/N sets per group on outputs 2–6. **Swap:** swaps K/N sets between A and B. |
 | 3 | **MUSICAL** | Rhythmic ratios vs base tempo on 2–6 per group. **Swap:** swaps ratio sets A/B. |
 | 4 | **PROBABILISTIC** | Per-output trigger probabilities on each **beat**; A rising, B decreasing curves. **Swap:** inverts curves between groups. |
 | 5 | **SEQUENTIAL** | Fibonacci-style vs primes-style sequences on A/B. **Swap:** alternate sequence sets (e.g. Lucas / composites). |
 | 6 | **SWING** | Per-output swing on even beats; multiple profiles. **Swap:** swaps swing sets. Profiles persist in saved state. |
 | 7 | **POLYRHYTHM** | X:Y polyrhythms on 2–5; output 6 = logical OR of 2–5 in that group. **Swap:** swaps X:Y sets. |
-| 8 | **LOGIC** | Combines **Default-mode** derived signals: Group A **XOR** between paired A/B default outputs; Group B **NOR**. **Swap:** swaps gate types (A↔B roles in that scheme). |
+| 8 | **LOGIC** | Combines **mode 1 (RATIOS)** derived signals: Group A **XOR** between paired A/B outputs; Group B **NOR**. **Swap:** swaps gate types (A↔B roles in that scheme). |
 | 9 | **PHASING** | Group B at slightly detuned rate vs A; derived clocks on 3–6. **Swap:** cycles deviation amount. |
 | 10 | **CHAOS** | Lorenz attractor threshold crossings; shared divisor across outputs 2–6. **Swap:** steps divisor (wrapped). Divisor persisted. |
 | 11 | **FIXED** | 16-step fixed patterns at **4×** main clock; drum-style mapping on 2–6; **10 banks** (0–9), **MOD** advances bank; banks persisted. |
@@ -95,7 +95,7 @@ Mode **names** and **summaries** match the [KRONO Eurorack firmware user referen
 | 25 | **SEQUENTIAL BOUNCE** | **MOD:** all **12** jacks fire **once** together, then each **row** runs a **mini burst**: A side **speeds up** (gaps shrink; top A row finishes first), B side **slows down** (bottom B row finishes last). **Six** extra pulses per jack after the unison; timing in **fixed seconds**, not locked to current BPM. |
 | 26 | **PORTALS** | **Held levels** (not short triggers): each column is a “door” — one side **high**, one **low**, for the whole beat. **Divide** (default): row **1** swaps every beat, row **2** every two beats, row **3** every three, and so on. **MOD:** **multiply** — higher rows **alternate faster within the beat**. Persisted (multiply vs divide). |
 | 27 | **COIN TOSS** | On **each beat**, per column random **A** vs **B** with fixed odds (85/75/65/50/25/15 % for **A**). **MOD:** flip to **mirrored** odds. Persisted. |
-| 28 | **RATCHET** | **1A–6A** multiplication, **1B–6B** division (like Default, including first outputs). **MOD:** **double** the effective “fast” side **without** restarting the bar—subdivisions **stretch** to match; the underlying beat grid **does not** jump. Persisted. |
+| 28 | **RATCHET** | **1A–6A** multiplication, **1B–6B** division (same base routing as mode 1). **MOD:** **double** the effective “fast” side **without** restarting the bar—subdivisions **stretch** to match; the underlying beat grid **does not** jump. Persisted. |
 | 29 | **ANTI-RATCHET** | Same routing as 28. **MOD:** **halve** that effective speed the same way—**no** extra pause, **no** forced reset of the divided side. Persisted. |
 | 30 | **STARTnSTOP** | Same routing as 28. **MOD:** **mute** all gates; **internal** timing **keeps running** so you return in phase when unmuted. Persisted. |
 
@@ -106,7 +106,7 @@ Mode **names** and **summaries** match the [KRONO Eurorack firmware user referen
 | Step | Action |
 |------|--------|
 | Enter | Hold **Tap** to enter mode-change state |
-| Omega bank | Keep holding ~2 s before release to select modes **11–20** (Aux short blink) |
+| Beta bank | Keep holding ~2 s before release to select modes **11–20** (Aux short blink) |
 | Gamma bank | Keep holding ~3 s before release to select modes **21–30** (Aux longer double-pulse style) |
 | After release | Wait without Mode to dismiss, or press Mode N times then **Tap** to confirm mode N in the armed bank |
 | Save timeout | If you only released Tap, waiting without Mode triggers save-dismiss (firmware-aligned timeout) |
