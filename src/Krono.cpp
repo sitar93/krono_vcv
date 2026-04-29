@@ -1180,10 +1180,11 @@ struct KronoWidget : ModuleWidget {
         box.size = Vec(RACK_GRID_WIDTH * 4.f, RACK_GRID_HEIGHT);
 #if defined(METAMODULE)
         setPanel(Svg::load(asset::plugin(pluginInstance, "res/KronoPanel.svg")));
-#endif
+#else
         auto* bg = new KronoPanelBackground(asset::plugin(pluginInstance, "res/KronoPanel.jpg"));
         bg->box.size = box.size;
         addChild(bg);
+#endif
 
         addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));

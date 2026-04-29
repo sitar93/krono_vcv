@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="60.96mm" height="128.5mm" viewBox="0 0 60.96 128.5">
+  <!-- Raster faceplate (156×1024); letterboxed to 4 HP × 3 U like KronoPanelBackground on desktop. -->
+  <image xlink:href="KronoPanel.jpg" x="0" y="0" width="60.96" height="128.5" preserveAspectRatio="xMidYMid meet"/>
+</svg>
