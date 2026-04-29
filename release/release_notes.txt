@@ -1,8 +1,10 @@
-KRONO VCV Rack plugin **v2.1.0** (Rack 2).
+KRONO VCV Rack plugin **v2.1.1** (Rack 2).
 
 ## Highlights
 
-* Version **`v2.1.0`** — Git tag and `plugin.json` **2.1.0**; artifacts **`Krono-2.1.0-*`**
+* Version **`v2.1.1`** — Git tag and `plugin.json` **2.1.1**; artifacts **`Krono-2.1.1-*`**
+* Brand metadata aligned to **Jolin** in `plugin.json`
+* MetaModule-only faceplate compatibility hook added in shared source (no desktop VCV behavior change)
 * Firmware alignment: KRONO Eurorack `v1.4.0`
 * 30 operational modes (Alpha 1-10, Beta 11-20, Gamma 21-30)
 * Per-module engine state; `thread_local` dispatch for Rack 2 parallel engine threads
@@ -12,9 +14,9 @@ KRONO VCV Rack plugin **v2.1.0** (Rack 2).
 
 ## Assets
 
-* `Krono-2.1.0-win-x64.vcvplugin`
-* `Krono-2.1.0-win-x64.sha256`
+* `Krono-2.1.1-win-x64.vcvplugin`
+* `Krono-2.1.1-win-x64.sha256`
 
 ## SHA256
 
-`6294A6F78D564835A03200C827E8FCDF087D35674B817873AD862DEC4C6FF0C7`
+`091D84B007F5884AAD01599C8D6BD930E0AA6010F8B303A2352AD2BDCD37B404`

@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.  
 From **v2.1.0** onward, the **Git tag** matches **`plugin.json`**: both use **2.1.0** style versioning, with major **2** required for the Rack 2 plugin API ([manifest rules](https://vcvrack.com/manual/Manifest.html)). Earlier **v1.0.0** used manifest **1.0.0** (Rack 1 line).
 
+## [2.1.1] - 2026-04-29
+
+### Highlights
+
+- Brand metadata in `plugin.json` is now `Jolin` for consistent naming across VCV and MetaModule.
+- Added a MetaModule-only `setPanel(Svg::load(...))` path in `KronoWidget` to improve faceplate discovery in shared-source builds, without changing desktop VCV behavior.
+
 ## [2.1.0] - 2026-04-10
 
 ### Highlights
